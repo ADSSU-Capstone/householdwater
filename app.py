@@ -4,15 +4,15 @@ import numpy as np
 import re
 import unicodedata
 
-st.set_page_config(page_title="Household Water Usage Analysis", layout="wide")
+st.set_page_config(page_title="Water Usage Dashboard", layout="wide")
 
 st.markdown("""
 <style>
     .stApp {
-        background-color: #F7F9F8;
+        background-color: #F9F9F8;
     }
     h1, h2, h3 {
-        color: #1A3636 !important;
+        color: #2D4A3E !important;
         font-family: 'Helvetica Neue', sans-serif;
     }
     .stTabs [data-baseweb="tab-list"] { 
@@ -31,14 +31,14 @@ st.markdown("""
         transition: all 0.2s ease;
     }
     .stTabs [data-baseweb="tab"]:hover {
-        border-color: #2F5D62;
-        color: #2F5D62;
+        border-color: #7A9E7E;
+        color: #2D4A3E;
     }
     .stTabs [aria-selected="true"] {
-        background-color: #2F5D62 !important; 
+        background-color: #2D4A3E !important; 
         color: #FFFFFF !important; 
-        border-color: #2F5D62 !important;
-        box-shadow: 0 4px 10px rgba(47, 93, 98, 0.2);
+        border-color: #2D4A3E !important;
+        box-shadow: 0 4px 10px rgba(45, 74, 62, 0.2);
     }
     .stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] { 
         display: none; 
@@ -57,7 +57,7 @@ st.markdown("""
         font-size: 14px;
     }
     div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
-        color: #2F5D62 !important;
+        color: #D97736 !important;
         font-weight: 700;
     }
     div[data-testid="stDataFrame"] {
@@ -65,6 +65,45 @@ st.markdown("""
         border-radius: 8px;
         padding: 10px;
         border: 1px solid #E0E6E4;
+    }
+    .custom-chart {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-bottom: 20px;
+    }
+    .chart-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    .chart-label {
+        width: 180px;
+        font-size: 13px;
+        color: #4A5D5D;
+        text-align: right;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .chart-bar-container {
+        flex-grow: 1;
+        background-color: #EEF2F0;
+        border-radius: 4px;
+        height: 24px;
+        display: flex;
+    }
+    .chart-bar {
+        background-color: #D97736;
+        height: 100%;
+        border-radius: 4px;
+        transition: width 0.5s ease;
+    }
+    .chart-value {
+        width: 50px;
+        font-size: 13px;
+        font-weight: 600;
+        color: #2D4A3E;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -145,9 +184,26 @@ def clean_dataset(df):
             df[c] = df[c].apply(clean_text)
     return df.reset_index(drop=True)
 
-def get_vc(series):
-    # safe value_counts to avoid pandas 2.x mixed-type object errors
-    return pd.Series(series.dropna().astype(str).values).value_counts()
+def get_counts(series):
+    # convert to pure python strings to avoid pandas internals
+    vals = series.dropna().astype(str).tolist()
+    return pd.Series(vals).value_counts()
+
+def render_custom_bar(df, label_col, value_col, max_val):
+    html = '<div class="custom-chart">'
+    for _, row in df.iterrows():
+        pct = (row[value_col] / max_val) * 100 if max_val > 0 else 0
+        html += f'''
+        <div class="chart-row">
+            <div class="chart-label" title="{row[label_col]}">{row[label_col]}</div>
+            <div class="chart-bar-container">
+                <div class="chart-bar" style="width: {pct}%;"></div>
+            </div>
+            <div class="chart-value">{row[value_col]:,.0f}</div>
+        </div>
+        '''
+    html += '</div>'
+    st.markdown(html, unsafe_allow_html=True)
 
 activity_cols = [
     "DRINGKING & COOKING", "BATHING", "LAUNDRY", "TOILET FLUSHING",
@@ -161,6 +217,9 @@ activity_labels = {
     "WATERING PLANTS": "Watering Plants", "CAR /VIHICLE WASHING": "Car / Vehicle Washing",
     "ANIMAL CARE": "Animal Care"
 }
+
+st.title("Data Mining-Based Household Water Usage Analysis")
+st.markdown("<p style='color: #6A7C7C; font-size: 16px; margin-bottom: 30px;'>Analysis and Visualization of Consumption Patterns in Bliss, Bunawan, Agusan del Sur</p>", unsafe_allow_html=True)
 
 st.sidebar.markdown("### Data Management")
 uploaded = st.sidebar.file_uploader("Upload Dataset (CSV or Excel)", type=["csv", "xlsx", "xls"])
@@ -238,21 +297,18 @@ with tabs[0]:
     with col_a:
         st.markdown("### Consumption Level Distribution")
         if "ConsumptionLevel" in df and df["ConsumptionLevel"].notna().any():
-            lvl = get_vc(df["ConsumptionLevel"]).reindex(["Low", "Medium", "High"]).fillna(0)
-            lvl_df = pd.DataFrame({"Level": lvl.index, "Households": lvl.values}).set_index("Level")
-            st.bar_chart(lvl_df)
-            st.dataframe(lvl_df.T, use_container_width=True)
+            vc = get_counts(df["ConsumptionLevel"]).reindex(["Low", "Medium", "High"]).fillna(0)
+            chart_df = pd.DataFrame({"Level": vc.index.tolist(), "Households": vc.values.tolist()})
+            render_custom_bar(chart_df, "Level", "Households", chart_df["Households"].max())
         else:
             st.write("Insufficient daily consumption data.")
             
     with col_b:
         st.markdown("### Households by Water Source")
         if col_source:
-            src = get_vc(df[col_source]).reset_index()
-            src.columns = ["Source", "Households"]
-            src = src.set_index("Source")
-            st.bar_chart(src)
-            st.dataframe(src.T, use_container_width=True)
+            vc = get_counts(df[col_source])
+            chart_df = pd.DataFrame({"Source": vc.index.tolist(), "Households": vc.values.tolist()})
+            render_custom_bar(chart_df, "Source", "Households", chart_df["Households"].max())
 
     st.markdown("---")
     
@@ -261,19 +317,17 @@ with tabs[0]:
         st.markdown("### Mean Daily Use by Family Size")
         if "FamilySizeNum" in df and df["FamilySizeNum"].notna().any():
             grp = df.dropna(subset=["FamilySizeNum", "DailyLiters"]).groupby("FamilySizeNum")["DailyLiters"].mean().reset_index()
-            grp["FamilySizeNum"] = grp["FamilySizeNum"].astype(str) + " Persons"
-            grp = grp.set_index("FamilySizeNum")
-            st.bar_chart(grp)
-            st.dataframe(grp.T, use_container_width=True)
+            grp["Label"] = grp["FamilySizeNum"].astype(str) + " Persons"
+            chart_df = pd.DataFrame({"Label": grp["Label"].tolist(), "Mean": grp["DailyLiters"].tolist()})
+            render_custom_bar(chart_df, "Label", "Mean", chart_df["Mean"].max())
 
     with col_d:
         st.markdown("### Mean Daily Use by Income Band")
         if "IncomeNum" in df and df["IncomeNum"].notna().any():
-            gi = df.dropna(subset=["IncomeNum", "DailyLiters"]).groupby("IncomeNum")["DailyLiters"].mean().reset_index()
-            gi["IncomeNum"] = "₱ " + gi["IncomeNum"].astype(int).astype(str)
-            gi = gi.set_index("IncomeNum")
-            st.bar_chart(gi)
-            st.dataframe(gi.T, use_container_width=True)
+            grp = df.dropna(subset=["IncomeNum", "DailyLiters"]).groupby("IncomeNum")["DailyLiters"].mean().reset_index()
+            grp["Label"] = "₱ " + grp["IncomeNum"].astype(int).astype(str)
+            chart_df = pd.DataFrame({"Label": grp["Label"].tolist(), "Mean": grp["DailyLiters"].tolist()})
+            render_custom_bar(chart_df, "Label", "Mean", chart_df["Mean"].max())
 
 with tabs[1]:
     st.subheader("K-Means Clustering Analysis")
@@ -424,8 +478,8 @@ with tabs[4]:
                     if act_key in c.upper():
                         label = act_label
                         break
-                counts = get_vc(df[c])
-                for k, v in counts.items():
+                vc = get_counts(df[c])
+                for k, v in vc.items():
                     if str(k).upper() in ["DAILY", "WEEKLY", "MONTHLY", "RARELY", "NEVER"]:
                         rows.append({"Activity": label, "Frequency": str(k).upper(), "Households": v})
             af = pd.DataFrame(rows)
@@ -439,11 +493,9 @@ with tabs[4]:
     with col_most:
         if col_most:
             st.markdown("### Activity Consuming Most Water")
-            mw = get_vc(df[col_most]).reset_index()
-            mw.columns = ["Activity", "Households"]
-            mw = mw.set_index("Activity")
-            st.bar_chart(mw)
-            st.dataframe(mw.T, use_container_width=True)
+            vc = get_counts(df[col_most])
+            chart_df = pd.DataFrame({"Activity": vc.index.tolist(), "Households": vc.values.tolist()})
+            render_custom_bar(chart_df, "Activity", "Households", chart_df["Households"].max())
             
     st.markdown("---")
     
@@ -451,20 +503,16 @@ with tabs[4]:
     with col_cons:
         if col_conserve:
             st.markdown("### Conservation Practice Adoption")
-            cp = get_vc(df[col_conserve]).reset_index()
-            cp.columns = ["Response", "Households"]
-            cp = cp.set_index("Response")
-            st.bar_chart(cp)
-            st.dataframe(cp.T, use_container_width=True)
+            vc = get_counts(df[col_conserve])
+            chart_df = pd.DataFrame({"Response": vc.index.tolist(), "Households": vc.values.tolist()})
+            render_custom_bar(chart_df, "Response", "Households", chart_df["Households"].max())
 
     with col_prac:
         if col_practice:
             st.markdown("### Top Conservation Methods Applied")
-            pm = get_vc(df[col_practice]).head(10).reset_index()
-            pm.columns = ["Method", "Households"]
-            pm = pm.set_index("Method")
-            st.bar_chart(pm)
-            st.dataframe(pm.T, use_container_width=True)
+            vc = get_counts(df[col_practice]).head(10)
+            chart_df = pd.DataFrame({"Method": vc.index.tolist(), "Households": vc.values.tolist()})
+            render_custom_bar(chart_df, "Method", "Households", chart_df["Households"].max())
             
     if col_shortage and col_source:
         st.markdown("---")
