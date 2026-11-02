@@ -8,9 +8,12 @@ st.set_page_config(page_title="Water Usage Dashboard", layout="wide")
 
 st.markdown("""
 <style>
-    .stApp { background-color: #F9F9F8; }
+    /* Main Background and Text */
+    .stApp { background-color: #F4F7F5; }
     h1, h2, h3 { color: #2D4A3E !important; font-family: 'Helvetica Neue', sans-serif; }
-    .stTabs [data-baseweb="tab-list"] { gap: 10px; background-color: transparent; }
+    
+    /* Custom Tabs */
+    .stTabs [data-baseweb="tab-list"] { gap: 12px; background-color: transparent; }
     .stTabs [data-baseweb="tab"] {
         height: 50px; background-color: #FFFFFF; border: 1px solid #D1D8D6;
         border-radius: 8px; padding: 0 24px; color: #4A5D5D; font-weight: 600;
@@ -22,12 +25,20 @@ st.markdown("""
         border-color: #2D4A3E !important; box-shadow: 0 4px 10px rgba(45, 74, 62, 0.2);
     }
     .stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] { display: none; }
+    
+    /* Metric Cards */
     div[data-testid="stMetric"] {
         background-color: #FFFFFF; border: 1px solid #E0E6E4; border-radius: 10px; 
         padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.02); text-align: center;
     }
     div[data-testid="stMetric"] label { color: #6A7C7C !important; font-weight: 600; font-size: 14px; }
     div[data-testid="stMetric"] div[data-testid="stMetricValue"] { color: #D97736 !important; font-weight: 700; }
+    
+    /* Custom Bar Chart CSS */
+    .custom-bar-container { margin-bottom: 16px; font-family: 'Helvetica Neue', sans-serif; }
+    .custom-bar-label { display: flex; justify-content: space-between; font-size: 14px; color: #4A5D5D; margin-bottom: 6px; font-weight: 600; }
+    .custom-bar-bg { width: 100%; background-color: #E8EDEA; border-radius: 6px; height: 24px; overflow: hidden; }
+    .custom-bar-fill { height: 100%; background-color: #D97736; border-radius: 6px; transition: width 1s ease; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -92,15 +103,27 @@ def parse_bill(val):
     if len(nums) >= 2: return (nums[0] + nums[1]) / 2.0
     return nums[0]
 
-def safe_value_counts(df, col_name):
-    # Extracts to pure python list to completely bypass pandas/altair bugs
-    if col_name not in df: return pd.DataFrame(columns=["Label", "Count"])
-    vals = [str(v).strip() for v in df[col_name].tolist() if str(v).strip() != "" and str(v).lower() != "nan"]
+def get_vc_list(series):
+    vals = [str(v).strip() for v in series.tolist() if str(v).strip() != "" and str(v).lower() != "nan"]
     counts = {}
     for v in vals:
         counts[v] = counts.get(v, 0) + 1
-    sorted_counts = sorted(counts.items(), key=lambda x: x[1], reverse=True)
-    return pd.DataFrame(sorted_counts, columns=["Label", "Count"])
+    return sorted(counts.items(), key=lambda x: x[1], reverse=True)
+
+def draw_bars(items, label_header="Label", value_header="Count", is_float=False):
+    if not items: return
+    max_val = max([v for k, v in items]) if items else 0
+    html = f"<div style='display:flex; justify-content:space-between; font-weight:bold; border-bottom:2px solid #D1D8D6; padding-bottom:8px; margin-bottom:16px; color:#2D4A3E;'><span>{label_header}</span><span>{value_header}</span></div>"
+    for label, value in items:
+        pct = (value / max_val) * 100 if max_val > 0 else 0
+        display_val = f"{value:,.2f}" if is_float else f"{value:,}"
+        html += f"""
+        <div class="custom-bar-container">
+            <div class="custom-bar-label"><span>{label}</span><span>{display_val}</span></div>
+            <div class="custom-bar-bg"><div class="custom-bar-fill" style="width: {pct}%;"></div></div>
+        </div>
+        """
+    st.markdown(html, unsafe_allow_html=True)
 
 activity_cols = ["DRINGKING & COOKING", "BATHING", "LAUNDRY", "TOILET FLUSHING", "DISHWASHING", "CLEANING /MOPPING", "WATERING PLANTS", "CAR /VIHICLE WASHING", "ANIMAL CARE"]
 activity_labels = {
@@ -176,21 +199,15 @@ with tabs[0]:
     with col_a:
         st.markdown("### Consumption Level Distribution")
         if "ConsumptionLevel" in df and df["ConsumptionLevel"].notna().any():
-            lvl = safe_value_counts(df, "ConsumptionLevel")
-            if not lvl.empty:
-                # FORCE CLEAN STRING INDEX TO PREVENT ALTAIR BUG
-                lvl["Label"] = lvl["Label"].astype(str)
-                lvl = lvl.set_index("Label").reindex(["Low", "Medium", "High"]).fillna(0)
-                st.bar_chart(lvl)
-                st.dataframe(lvl.T, use_container_width=True)
+            items = get_vc_list(df["ConsumptionLevel"])
+            ordered = [("Low", next((v for k, v in items if k == "Low"), 0)),
+                       ("Medium", next((v for k, v in items if k == "Medium"), 0)),
+                       ("High", next((v for k, v in items if k == "High"), 0))]
+            draw_bars(ordered, "Level", "Households")
     with col_b:
         st.markdown("### Households by Water Source")
         if col_source: 
-            src = safe_value_counts(df, col_source)
-            if not src.empty:
-                src["Label"] = src["Label"].astype(str)
-                st.bar_chart(src.set_index("Label"))
-                st.dataframe(src.set_index("Label").T, use_container_width=True)
+            draw_bars(get_vc_list(df[col_source]), "Source", "Households")
 
     st.markdown("---")
     col_c, col_d = st.columns(2)
@@ -198,18 +215,14 @@ with tabs[0]:
         st.markdown("### Mean Daily Use by Family Size")
         if "FamilySizeNum" in df and df["FamilySizeNum"].notna().any():
             grp = df.dropna(subset=["FamilySizeNum", "DailyLiters"]).groupby("FamilySizeNum")["DailyLiters"].mean().reset_index()
-            grp["Label"] = grp["FamilySizeNum"].astype(str) + " Persons"
-            grp["Label"] = grp["Label"].astype(str)
-            st.bar_chart(grp.set_index("Label")[["DailyLiters"]])
-            st.dataframe(grp.set_index("Label")[["DailyLiters"]].T, use_container_width=True)
+            items = [(f"{row['FamilySizeNum']} Persons", row["DailyLiters"]) for _, row in grp.iterrows()]
+            draw_bars(items, "Family Size", "Mean Liters", is_float=True)
     with col_d:
         st.markdown("### Mean Daily Use by Income Band")
         if "IncomeNum" in df and df["IncomeNum"].notna().any():
             gi = df.dropna(subset=["IncomeNum", "DailyLiters"]).groupby("IncomeNum")["DailyLiters"].mean().reset_index()
-            gi["Label"] = "₱ " + gi["IncomeNum"].astype(int).astype(str)
-            gi["Label"] = gi["Label"].astype(str)
-            st.bar_chart(gi.set_index("Label")[["DailyLiters"]])
-            st.dataframe(gi.set_index("Label")[["DailyLiters"]].T, use_container_width=True)
+            items = [(f"₱ {int(row['IncomeNum'])}", row["DailyLiters"]) for _, row in gi.iterrows()]
+            draw_bars(items, "Income Band", "Mean Liters", is_float=True)
 
 with tabs[1]:
     st.subheader("K-Means Clustering Analysis")
@@ -232,17 +245,16 @@ with tabs[1]:
             dbi.append(davies_bouldin_score(Xs, km.labels_))
             
         metrics_df = pd.DataFrame({"k": ks, "WCSS": wcss, "Silhouette": sil, "DaviesBouldin": dbi})
-        metrics_df["k"] = metrics_df["k"].astype(str)
-        metrics_df = metrics_df.set_index("k")
-        
         c1, c2 = st.columns(2)
         with c1:
             st.markdown("### Elbow Method (WCSS)")
-            st.line_chart(metrics_df["WCSS"])
-            st.dataframe(metrics_df, use_container_width=True)
+            items = [(f"k={int(row['k'])}", row["WCSS"]) for _, row in metrics_df.iterrows()]
+            draw_bars(items, "Clusters (k)", "WCSS", is_float=True)
+            st.dataframe(metrics_df.set_index("k"), use_container_width=True)
         with c2:
             st.markdown("### Silhouette Score")
-            st.line_chart(metrics_df["Silhouette"])
+            items = [(f"k={int(row['k'])}", row["Silhouette"]) for _, row in metrics_df.iterrows()]
+            draw_bars(items, "Clusters (k)", "Silhouette", is_float=True)
             
         best_k = ks[int(np.argmax(sil))]
         st.info(f"Optimal K selected by maximum Silhouette Score: **{best_k} clusters** (Davies-Bouldin: {dbi[ks.index(best_k)]:.3f})")
@@ -317,10 +329,9 @@ with tabs[3]:
                         st.dataframe(show.reset_index(drop=True), use_container_width=True)
                         
                         top = show.head(15).copy()
-                        top["Rule"] = top["antecedents"] + " -> " + top["consequents"]
-                        top["Rule"] = top["Rule"].astype(str)
+                        items = [(f"{row['antecedents']} -> {row['consequents']}", row["lift"]) for _, row in top.iterrows()]
                         st.markdown("### Top 15 Rules by Lift")
-                        st.bar_chart(top.set_index("Rule")["lift"])
+                        draw_bars(items, "Association Rule", "Lift", is_float=True)
     except ImportError: st.write("Association rule library unavailable.")
 
 with tabs[4]:
@@ -334,51 +345,43 @@ with tabs[4]:
             rows = []
             for c in act_present:
                 label = next((act_label for act_key, act_label in activity_labels.items() if act_key in c.upper()), c)
-                counts = safe_value_counts(df, c)
-                for _, row in counts.iterrows():
-                    k = str(row["Label"]).upper()
-                    if k in ["DAILY", "WEEKLY", "MONTHLY", "RARELY", "NEVER"]:
-                        rows.append({"Activity": label, "Frequency": k, "Households": row["Count"]})
+                for k, v in get_vc_list(df[c]):
+                    if str(k).upper() in ["DAILY", "WEEKLY", "MONTHLY", "RARELY", "NEVER"]:
+                        rows.append({"Activity": label, "Frequency": str(k).upper(), "Households": v})
             af = pd.DataFrame(rows)
             if not af.empty:
                 pivot = af.pivot_table(index="Activity", columns="Frequency", values="Households", aggfunc="sum").fillna(0)
                 order = [x for x in ["DAILY", "WEEKLY", "MONTHLY", "RARELY", "NEVER"] if x in pivot.columns]
                 pivot = pivot[order]
-                pivot.index = pivot.index.astype(str)
-                st.bar_chart(pivot)
                 st.dataframe(pivot, use_container_width=True)
+                # Render a stacked bar chart manually
+                for activity in pivot.index:
+                    st.markdown(f"**{activity}**")
+                    counts = [(f, pivot.loc[activity, f]) for f in order if pivot.loc[activity, f] > 0]
+                    draw_bars(counts, "", "Households")
 
     with col_most:
         if col_most:
             st.markdown("### Activity Consuming Most Water")
-            mw = safe_value_counts(df, col_most)
-            if not mw.empty:
-                mw["Label"] = mw["Label"].astype(str)
-                st.bar_chart(mw.set_index("Label"))
-                st.dataframe(mw.set_index("Label").T, use_container_width=True)
+            draw_bars(get_vc_list(df[col_most]), "Activity", "Households")
             
     st.markdown("---")
     col_cons, col_prac = st.columns(2)
     with col_cons:
         if col_conserve:
             st.markdown("### Conservation Practice Adoption")
-            cp = safe_value_counts(df, col_conserve)
-            if not cp.empty:
-                cp["Label"] = cp["Label"].astype(str)
-                st.bar_chart(cp.set_index("Label"))
-                st.dataframe(cp.set_index("Label").T, use_container_width=True)
+            draw_bars(get_vc_list(df[col_conserve]), "Response", "Households")
     with col_prac:
         if col_practice:
             st.markdown("### Top Conservation Methods Applied")
-            pm = safe_value_counts(df, col_practice).head(10)
-            if not pm.empty:
-                pm["Label"] = pm["Label"].astype(str)
-                st.bar_chart(pm.set_index("Label"))
-                st.dataframe(pm.set_index("Label").T, use_container_width=True)
+            draw_bars(get_vc_list(df[col_practice])[:10], "Method", "Households")
             
     if col_shortage and col_source:
         st.markdown("---")
         st.markdown("### Water Shortage Experience by Source")
         ct = pd.crosstab(df[col_source].astype(str), df[col_shortage].astype(str))
-        st.bar_chart(ct)
         st.dataframe(ct, use_container_width=True)
+        for source in ct.index:
+            st.markdown(f"**{source}**")
+            counts = [(str(k), v) for k, v in ct.loc[source].items() if v > 0]
+            draw_bars(counts, "Response", "Households")
