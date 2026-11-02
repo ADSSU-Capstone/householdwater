@@ -41,11 +41,10 @@ def load_example():
         return None
 
 def process_headers(df_raw):
-    # Identify how many header rows exist by finding the first row that looks like data (e.g., ROO1)
     header_rows = 1
     for i in range(min(5, len(df_raw))):
         row_str = " ".join([str(x) for x in df_raw.iloc[i].values if pd.notna(x)]).upper()
-        if "ROO1" in row_str or "R001" in row_str or "RESPONDENT" in row_str and i > 0:
+        if "ROO1" in row_str or "R001" in row_str or ("RESPONDENT" in row_str and i > 0):
             header_rows = i
             break
     
@@ -61,7 +60,6 @@ def process_headers(df_raw):
 
     cols = [re.sub(r"\s+", " ", c).strip() for c in cols]
     
-    # Make column names unique if there are duplicates
     seen = {}
     for i, c in enumerate(cols):
         if c in seen:
@@ -105,10 +103,9 @@ def parse_bill(val):
     return nums[0]
 
 def clean_dataset(df):
-    df = df.dropna(how="all")
+    df = df.dropna(how="all").copy()
     df = df.drop_duplicates()
     for c in df.columns:
-        # Use pandas api to safely check for string/object types across versions
         if pd.api.types.is_string_dtype(df[c]) or df[c].dtype == object:
             df[c] = df[c].apply(clean_text)
     return df.reset_index(drop=True)
@@ -179,14 +176,14 @@ if col_daily:
 
 family_map = {"1-2 PERSON": 1.5, "3-4 PERSON": 3.5, "5-6 PERSON": 5.5, "7-8 PERSON": 7.5, "9 OR MORE": 9.5}
 if col_family:
-    df["FamilySizeNum"] = df[col_family].str.upper().map(family_map)
+    df["FamilySizeNum"] = df[col_family].str.upper().map(family_map).astype(float)
 
 income_map = {
     "5000": 5000, "5,000": 5000, "5,000-10,000": 7500, "10,000-15,000": 12500,
     "15,000,20,000": 17500, "15,000-20,000": 17500, "20,000-30,000": 25000, "ABOVE 30,000": 35000
 }
 if col_income:
-    df["IncomeNum"] = df[col_income].str.upper().map(income_map)
+    df["IncomeNum"] = df[col_income].str.upper().map(income_map).astype(float)
 
 tabs = st.tabs(["Consumption Profile", "Clustering (K-Means)", "Classification (Decision Tree)", "Association Rules (Apriori)", "Conservation & Usage Patterns"])
 
@@ -234,14 +231,14 @@ with tabs[0]:
 with tabs[1]:
     st.subheader("K-Means Clustering")
     feature_cols = [c for c in ["FamilySizeNum", "IncomeNum", "DailyLiters", "MonthlyBill"] if c in df and df[c].notna().any()]
-    cluster_ready = df.dropna(subset=feature_cols) if feature_cols else pd.DataFrame()
+    cluster_ready = df.dropna(subset=feature_cols).copy() if feature_cols else pd.DataFrame()
 
     if len(cluster_ready) >= 8 and len(feature_cols) >= 2:
         from sklearn.preprocessing import StandardScaler
         from sklearn.cluster import KMeans
         from sklearn.metrics import silhouette_score, davies_bouldin_score
 
-        X = cluster_ready[feature_cols].values
+        X = cluster_ready[feature_cols].to_numpy(dtype=np.float64)
         Xs = StandardScaler().fit_transform(X)
         max_k = min(6, len(cluster_ready) - 1)
         ks = list(range(2, max_k + 1))
@@ -258,7 +255,6 @@ with tabs[1]:
         best_k = ks[int(np.argmax(sil))]
         st.metric("Selected k (max silhouette)", best_k)
         km = KMeans(n_clusters=best_k, n_init=10, random_state=42).fit(Xs)
-        cluster_ready = cluster_ready.copy()
         cluster_ready["Cluster"] = km.labels_
         prof = cluster_ready.groupby("Cluster")[feature_cols].mean().round(2)
         prof["Households"] = cluster_ready.groupby("Cluster").size()
@@ -276,10 +272,13 @@ with tabs[2]:
         from sklearn.metrics import accuracy_score, precision_recall_fscore_support, confusion_matrix
 
         feat = [c for c in ["FamilySizeNum", "IncomeNum", "MonthlyBill"] if c in df and df[c].notna().any()]
-        tree_df = df.dropna(subset=feat + ["ConsumptionLevel"])
+        tree_df = df.dropna(subset=feat + ["ConsumptionLevel"]).copy()
+        
         if len(tree_df) >= 12 and feat:
-            X = tree_df[feat].values
-            y = tree_df["ConsumptionLevel"].values
+            # Convert to strict numpy arrays to avoid pyarrow/pandas slicing errors
+            X = tree_df[feat].to_numpy(dtype=np.float64)
+            y = tree_df["ConsumptionLevel"].to_numpy(dtype=str)
+            
             Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
             clf = DecisionTreeClassifier(max_depth=4, random_state=42).fit(Xtr, ytr)
             pred = clf.predict(Xte)
@@ -313,7 +312,8 @@ with tabs[3]:
         if col_source: arm_cols.append(col_source)
         if "ConsumptionLevel" in df and df["ConsumptionLevel"].notna().any():
             arm_cols.append("ConsumptionLevel")
-        arm_df = df[arm_cols].dropna()
+        arm_df = df[arm_cols].dropna().copy()
+        
         if len(arm_df) >= 10 and len(arm_cols) >= 2:
             trans = pd.get_dummies(arm_df.astype(str))
             trans = trans.loc[:, trans.sum() / len(trans) >= 0.10]
