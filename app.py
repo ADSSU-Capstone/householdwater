@@ -4,6 +4,7 @@ import numpy as np
 import re
 import unicodedata
 from collections import Counter
+import plotly.express as px
 
 st.set_page_config(page_title="Water Usage Dashboard", layout="wide")
 
@@ -32,11 +33,6 @@ st.markdown("""
     div[data-testid="stMetric"] label { color: #6A7C7C !important; font-weight: 600; font-size: 14px; }
     div[data-testid="stMetric"] div[data-testid="stMetricValue"] { color: #D97736 !important; font-weight: 700; }
     div[data-testid="stDataFrame"] { background-color: #FFFFFF; border-radius: 8px; padding: 10px; border: 1px solid #E0E6E4; }
-    
-    .custom-bar-container { margin-bottom: 12px; font-family: 'Helvetica Neue', sans-serif; }
-    .custom-bar-label { display: flex; justify-content: space-between; font-size: 13px; color: #4A5D5D; margin-bottom: 4px; font-weight: 600; }
-    .custom-bar-bg { width: 100%; background-color: #EEF2F0; border-radius: 4px; height: 20px; }
-    .custom-bar-fill { height: 100%; background-color: #D97736; border-radius: 4px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -109,7 +105,6 @@ def clean_dataset(df):
     return df.reset_index(drop=True)
 
 def get_vc_list(series):
-    # Safe extraction to bypass pandas 2.x bugs
     vals = []
     for v in series:
         if pd.isna(v): continue
@@ -118,20 +113,15 @@ def get_vc_list(series):
     counts = Counter(vals)
     return counts.most_common()
 
-def draw_custom_bars(items, label_header="Label", value_header="Value"):
-    if not items: return
-    max_val = max([v for k, v in items]) if items else 0
-    html = f"<div style='display:flex; justify-content:space-between; font-weight:bold; border-bottom:1px solid #D1D8D6; padding-bottom:8px; margin-bottom:12px; color:#2D4A3E;'><span>{label_header}</span><span>{value_header}</span></div>"
-    for label, value in items:
-        pct = (value / max_val) * 100 if max_val > 0 else 0
-        display_val = f"{value:,.2f}" if isinstance(value, float) else f"{value:,}"
-        html += f"""
-        <div class="custom-bar-container">
-            <div class="custom-bar-label"><span>{label}</span><span>{display_val}</span></div>
-            <div class="custom-bar-bg"><div class="custom-bar-fill" style="width: {pct}%;"></div></div>
-        </div>
-        """
-    st.markdown(html, unsafe_allow_html=True)
+def render_bar(df, x_col, y_col, color_hex="#D97736", title=""):
+    if df.empty: return
+    fig = px.bar(df, x=x_col, y=y_col, title=title)
+    fig.update_traces(marker_color=color_hex)
+    fig.update_layout(
+        plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+        margin=dict(l=0, r=0, t=30, b=0), height=350
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
 activity_cols = ["DRINGKING & COOKING", "BATHING", "LAUNDRY", "TOILET FLUSHING", "DISHWASHING", "CLEANING /MOPPING", "WATERING PLANTS", "CAR /VIHICLE WASHING", "ANIMAL CARE"]
 activity_labels = {
@@ -207,11 +197,14 @@ with tabs[0]:
             ordered = [("Low", next((v for k, v in items if k == "Low"), 0)),
                        ("Medium", next((v for k, v in items if k == "Medium"), 0)),
                        ("High", next((v for k, v in items if k == "High"), 0))]
-            draw_custom_bars(ordered, "Level", "Households")
-        else: st.write("Insufficient daily consumption data.")
+            c_df = pd.DataFrame(ordered, columns=["Level", "Households"])
+            render_bar(c_df, "Level", "Households", "#D97736")
     with col_b:
         st.markdown("### Households by Water Source")
-        if col_source: draw_custom_bars(get_vc_list(df[col_source]), "Source", "Households")
+        if col_source: 
+            items = get_vc_list(df[col_source])
+            c_df = pd.DataFrame(items, columns=["Source", "Households"])
+            render_bar(c_df, "Source", "Households", "#4A7C59")
 
     st.markdown("---")
     col_c, col_d = st.columns(2)
@@ -219,14 +212,14 @@ with tabs[0]:
         st.markdown("### Mean Daily Use by Family Size")
         if "FamilySizeNum" in df and df["FamilySizeNum"].notna().any():
             grp = df.dropna(subset=["FamilySizeNum", "DailyLiters"]).groupby("FamilySizeNum")["DailyLiters"].mean().reset_index()
-            items = [(f"{row['FamilySizeNum']} Persons", row["DailyLiters"]) for _, row in grp.iterrows()]
-            draw_custom_bars(items, "Family Size", "Mean Liters")
+            grp["Label"] = grp["FamilySizeNum"].astype(str) + " Persons"
+            render_bar(grp, "Label", "DailyLiters", "#2D4A3E")
     with col_d:
         st.markdown("### Mean Daily Use by Income Band")
         if "IncomeNum" in df and df["IncomeNum"].notna().any():
             gi = df.dropna(subset=["IncomeNum", "DailyLiters"]).groupby("IncomeNum")["DailyLiters"].mean().reset_index()
-            items = [(f"₱ {int(row['IncomeNum'])}", row["DailyLiters"]) for _, row in gi.iterrows()]
-            draw_custom_bars(items, "Income Band", "Mean Liters")
+            gi["Label"] = "₱ " + gi["IncomeNum"].astype(int).astype(str)
+            render_bar(gi, "Label", "DailyLiters", "#7A9E7E")
 
 with tabs[1]:
     st.subheader("K-Means Clustering Analysis")
@@ -252,11 +245,11 @@ with tabs[1]:
         c1, c2 = st.columns(2)
         with c1:
             st.markdown("### Elbow Method (WCSS)")
-            st.line_chart(metrics_df.set_index("k")["WCSS"], color="#D97736")
+            render_bar(metrics_df, "k", "WCSS", "#D97736")
             st.dataframe(metrics_df.set_index("k"), use_container_width=True)
         with c2:
             st.markdown("### Silhouette Score")
-            st.line_chart(metrics_df.set_index("k")["Silhouette"], color="#2D4A3E")
+            render_bar(metrics_df, "k", "Silhouette", "#2D4A3E")
             
         best_k = ks[int(np.argmax(sil))]
         st.info(f"Optimal K selected by maximum Silhouette Score: **{best_k} clusters** (Davies-Bouldin: {dbi[ks.index(best_k)]:.3f})")
@@ -331,9 +324,9 @@ with tabs[3]:
                         st.dataframe(show.reset_index(drop=True), use_container_width=True)
                         
                         top = show.head(15).copy()
-                        items = [(f"{row['antecedents']} -> {row['consequents']}", row["lift"]) for _, row in top.iterrows()]
+                        top["Rule"] = top["antecedents"] + " -> " + top["consequents"]
                         st.markdown("### Top 15 Rules by Lift")
-                        draw_custom_bars(items, "Association Rule", "Lift")
+                        render_bar(top, "Rule", "lift", "#4A7C59")
     except ImportError: st.write("Association rule library unavailable.")
 
 with tabs[4]:
@@ -361,18 +354,24 @@ with tabs[4]:
     with col_most:
         if col_most:
             st.markdown("### Activity Consuming Most Water")
-            draw_custom_bars(get_vc_list(df[col_most]), "Activity", "Households")
+            items = get_vc_list(df[col_most])
+            c_df = pd.DataFrame(items, columns=["Activity", "Households"])
+            render_bar(c_df, "Activity", "Households", "#D97736")
             
     st.markdown("---")
     col_cons, col_prac = st.columns(2)
     with col_cons:
         if col_conserve:
             st.markdown("### Conservation Practice Adoption")
-            draw_custom_bars(get_vc_list(df[col_conserve]), "Response", "Households")
+            items = get_vc_list(df[col_conserve])
+            c_df = pd.DataFrame(items, columns=["Response", "Households"])
+            render_bar(c_df, "Response", "Households", "#2D4A3E")
     with col_prac:
         if col_practice:
             st.markdown("### Top Conservation Methods Applied")
-            draw_custom_bars(get_vc_list(df[col_practice])[:10], "Method", "Households")
+            items = get_vc_list(df[col_practice])[:10]
+            c_df = pd.DataFrame(items, columns=["Method", "Households"])
+            render_bar(c_df, "Method", "Households", "#7A9E7E")
             
     if col_shortage and col_source:
         st.markdown("---")
