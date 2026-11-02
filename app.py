@@ -7,7 +7,6 @@ from collections import Counter
 
 st.set_page_config(page_title="Water Usage Dashboard", layout="wide")
 
-# CUSTOM SAGE / TERRACOTTA THEME
 st.markdown("""
 <style>
     .stApp { background-color: #F4F7F5; }
@@ -96,38 +95,27 @@ def parse_bill(val):
     if len(nums) >= 2: return (nums[0] + nums[1]) / 2.0
     return nums[0]
 
-def safe_value_counts(df, col_name):
+def safe_value_counts(df, col_name, limit=None):
     if col_name not in df: return pd.DataFrame(columns=["Label", "Count"])
     vals = [str(v).strip() for v in df[col_name].tolist() if str(v).strip() != "" and str(v).lower() != "nan"]
     counts = {}
     for v in vals:
         counts[v] = counts.get(v, 0) + 1
     sorted_counts = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+    if limit: sorted_counts = sorted_counts[:limit]
     return pd.DataFrame(sorted_counts, columns=["Label", "Count"])
 
-def draw_svg_bars(items, label_header="Label", value_header="Count", is_float=False):
-    if not items: return
-    max_val = max([v for k, v in items]) if items else 0
-    
-    html = f"<div style='font-family:Helvetica Neue,sans-serif;'><div style='display:flex;justify-content:space-between;font-weight:bold;border-bottom:2px solid #D1D8D6;padding-bottom:8px;margin-bottom:16px;color:#2D4A3E;'><span>{label_header}</span><span>{value_header}</span></div>"
-    for label, value in items:
-        pct = (value / max_val) * 100 if max_val > 0 else 0
-        display_val = f"{value:,.2f}" if is_float else f"{value:,}"
-        
-        html += f"""
-        <div style='margin-bottom:16px;'>
-            <div style='display:flex;justify-content:space-between;font-size:14px;color:#4A5D5D;margin-bottom:6px;font-weight:600;'>
-                <span style='max-width:80%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{label}</span>
-                <span>{display_val}</span>
-            </div>
-            <svg width="100%" height="24" style="border-radius:6px; overflow:hidden;">
-                <rect width="100%" height="24" fill="#E8EDEA" />
-                <rect width="{pct}%" height="24" fill="#D97736" />
-            </svg>
-        </div>
-        """
-    html += "</div>"
-    st.html(html)
+# Native styling function to prevent Altair crashes and HTML stripping
+def render_native_bar(df, label_col, value_col, color_hex="#D97736"):
+    if df.empty: return
+    df_display = df.copy()
+    df_display = df_display.set_index(label_col)
+    df_display = df_display.sort_values(by=value_col, ascending=True)
+    st.dataframe(
+        df_display.style.background_gradient(cmap="Oranges", subset=[value_col], vmin=0)
+        .format({value_col: "{:,.1f}" if df_display[value_col].dtype == float else "{:,}"}),
+        use_container_width=True
+    )
 
 activity_cols = ["DRINGKING & COOKING", "BATHING", "LAUNDRY", "TOILET FLUSHING", "DISHWASHING", "CLEANING /MOPPING", "WATERING PLANTS", "CAR /VIHICLE WASHING", "ANIMAL CARE"]
 activity_labels = {
@@ -203,16 +191,14 @@ with tabs[0]:
     with col_a:
         st.markdown("### Consumption Level Distribution")
         if "ConsumptionLevel" in df and df["ConsumptionLevel"].notna().any():
-            items = safe_value_counts(df, "ConsumptionLevel").values.tolist()
-            ordered = [("Low", next((v for k, v in items if k == "Low"), 0)),
-                       ("Medium", next((v for k, v in items if k == "Medium"), 0)),
-                       ("High", next((v for k, v in items if k == "High"), 0))]
-            draw_svg_bars(ordered, "Level", "Households")
+            items = safe_value_counts(df, "ConsumptionLevel")
+            items = items.set_index("Label").reindex(["Low", "Medium", "High"]).fillna(0).reset_index()
+            render_native_bar(items, "Label", "Count", "#D97736")
     with col_b:
         st.markdown("### Households by Water Source")
         if col_source: 
-            items = safe_value_counts(df, col_source).values.tolist()
-            draw_svg_bars(items, "Source", "Households")
+            items = safe_value_counts(df, col_source)
+            render_native_bar(items, "Label", "Count", "#4A7C59")
 
     st.markdown("---")
     col_c, col_d = st.columns(2)
@@ -220,14 +206,14 @@ with tabs[0]:
         st.markdown("### Mean Daily Use by Family Size")
         if "FamilySizeNum" in df and df["FamilySizeNum"].notna().any():
             grp = df.dropna(subset=["FamilySizeNum", "DailyLiters"]).groupby("FamilySizeNum")["DailyLiters"].mean().reset_index()
-            items = [(f"{row['FamilySizeNum']} Persons", row["DailyLiters"]) for _, row in grp.iterrows()]
-            draw_svg_bars(items, "Family Size", "Mean Liters", is_float=True)
+            grp["Label"] = grp["FamilySizeNum"].astype(str) + " Persons"
+            render_native_bar(grp[["Label", "DailyLiters"]], "Label", "DailyLiters", "#2D4A3E")
     with col_d:
         st.markdown("### Mean Daily Use by Income Band")
         if "IncomeNum" in df and df["IncomeNum"].notna().any():
             gi = df.dropna(subset=["IncomeNum", "DailyLiters"]).groupby("IncomeNum")["DailyLiters"].mean().reset_index()
-            items = [(f"₱ {int(row['IncomeNum'])}", row["DailyLiters"]) for _, row in gi.iterrows()]
-            draw_svg_bars(items, "Income Band", "Mean Liters", is_float=True)
+            gi["Label"] = "₱ " + gi["IncomeNum"].astype(int).astype(str)
+            render_native_bar(gi[["Label", "DailyLiters"]], "Label", "DailyLiters", "#7A9E7E")
 
 with tabs[1]:
     st.subheader("K-Means Clustering Analysis")
@@ -253,13 +239,15 @@ with tabs[1]:
         c1, c2 = st.columns(2)
         with c1:
             st.markdown("### Elbow Method (WCSS)")
-            items = [(f"k={int(row['k'])}", row["WCSS"]) for _, row in metrics_df.iterrows()]
-            draw_svg_bars(items, "Clusters (k)", "WCSS", is_float=True)
+            m_df = metrics_df.copy()
+            m_df["Label"] = "k=" + m_df["k"].astype(str)
+            render_native_bar(m_df[["Label", "WCSS"]], "Label", "WCSS", "#D97736")
             st.dataframe(metrics_df.set_index("k"), use_container_width=True)
         with c2:
             st.markdown("### Silhouette Score")
-            items = [(f"k={int(row['k'])}", row["Silhouette"]) for _, row in metrics_df.iterrows()]
-            draw_svg_bars(items, "Clusters (k)", "Silhouette", is_float=True)
+            m_df = metrics_df.copy()
+            m_df["Label"] = "k=" + m_df["k"].astype(str)
+            render_native_bar(m_df[["Label", "Silhouette"]], "Label", "Silhouette", "#2D4A3E")
             
         best_k = ks[int(np.argmax(sil))]
         st.info(f"Optimal K selected by maximum Silhouette Score: **{best_k} clusters** (Davies-Bouldin: {dbi[ks.index(best_k)]:.3f})")
@@ -334,9 +322,8 @@ with tabs[3]:
                         st.dataframe(show.reset_index(drop=True), use_container_width=True)
                         
                         top = show.head(15).copy()
-                        items = [(f"{row['antecedents']} -> {row['consequents']}", row["lift"]) for _, row in top.iterrows()]
-                        st.markdown("### Top 15 Rules by Lift")
-                        draw_svg_bars(items, "Association Rule", "Lift", is_float=True)
+                        top["Rule"] = top["antecedents"] + " -> " + top["consequents"]
+                        render_native_bar(top[["Rule", "lift"]], "Rule", "lift", "#4A7C59")
     except ImportError: st.write("Association rule library unavailable.")
 
 with tabs[4]:
@@ -367,21 +354,21 @@ with tabs[4]:
     with col_most:
         if col_most:
             st.markdown("### Activity Consuming Most Water")
-            items = safe_value_counts(df, col_most).values.tolist()
-            draw_svg_bars(items, "Activity", "Households")
+            items = safe_value_counts(df, col_most)
+            render_native_bar(items, "Label", "Count", "#D97736")
             
     st.markdown("---")
     col_cons, col_prac = st.columns(2)
     with col_cons:
         if col_conserve:
             st.markdown("### Conservation Practice Adoption")
-            items = safe_value_counts(df, col_conserve).values.tolist()
-            draw_svg_bars(items, "Response", "Households")
+            items = safe_value_counts(df, col_conserve)
+            render_native_bar(items, "Label", "Count", "#2D4A3E")
     with col_prac:
         if col_practice:
             st.markdown("### Top Conservation Methods Applied")
-            items = safe_value_counts(df, col_practice).head(10).values.tolist()
-            draw_svg_bars(items, "Method", "Households")
+            items = safe_value_counts(df, col_practice, limit=10)
+            render_native_bar(items, "Label", "Count", "#7A9E7E")
             
     if col_shortage and col_source:
         st.markdown("---")
