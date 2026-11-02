@@ -8,18 +8,71 @@ st.set_page_config(page_title="Household Water Usage Analysis", layout="wide")
 
 st.markdown("""
 <style>
-.stTabs [data-baseweb="tab-list"] { gap: 8px; }
-.stTabs [data-baseweb="tab"] {
-    height: 46px; background-color: #f0f4f8; border: 1px solid #cdd7e2;
-    border-radius: 6px; padding: 0 18px; color: #24435f; font-weight: 600;
-}
-.stTabs [aria-selected="true"] {
-    background-color: #1f4e79 !important; color: #ffffff !important; border-color: #1f4e79 !important;
-}
-.stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] { display: none; }
-div[data-testid="stMetric"] {
-    background-color: #f7fafc; border: 1px solid #dbe4ed; border-radius: 8px; padding: 12px;
-}
+    /* Main background and text */
+    .stApp {
+        background-color: #F7F9F8;
+    }
+    h1, h2, h3 {
+        color: #1A3636 !important;
+        font-family: 'Helvetica Neue', sans-serif;
+    }
+    
+    /* Custom Tabs */
+    .stTabs [data-baseweb="tab-list"] { 
+        gap: 10px; 
+        background-color: transparent;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 50px; 
+        background-color: #FFFFFF; 
+        border: 1px solid #D1D8D6;
+        border-radius: 8px; 
+        padding: 0 24px; 
+        color: #4A5D5D; 
+        font-weight: 600;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.02);
+        transition: all 0.2s ease;
+    }
+    .stTabs [data-baseweb="tab"]:hover {
+        border-color: #2F5D62;
+        color: #2F5D62;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #2F5D62 !important; 
+        color: #FFFFFF !important; 
+        border-color: #2F5D62 !important;
+        box-shadow: 0 4px 10px rgba(47, 93, 98, 0.2);
+    }
+    .stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] { 
+        display: none; 
+    }
+    
+    /* Metrics Cards */
+    div[data-testid="stMetric"] {
+        background-color: #FFFFFF; 
+        border: 1px solid #E0E6E4; 
+        border-radius: 10px; 
+        padding: 20px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.02);
+        text-align: center;
+    }
+    div[data-testid="stMetric"] label {
+        color: #6A7C7C !important;
+        font-weight: 600;
+        font-size: 14px;
+    }
+    div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
+        color: #2F5D62 !important;
+        font-weight: 700;
+    }
+    
+    /* Dataframes */
+    div[data-testid="stDataFrame"] {
+        background-color: #FFFFFF;
+        border-radius: 8px;
+        padding: 10px;
+        border: 1px solid #E0E6E4;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -47,7 +100,6 @@ def process_headers(df_raw):
         if "ROO1" in row_str or "R001" in row_str or ("RESPONDENT" in row_str and i > 0):
             header_rows = i
             break
-    
     if header_rows == 0:
         header_rows = 1
 
@@ -59,7 +111,6 @@ def process_headers(df_raw):
                 cols[j] = f"{cols[j]} {val}".strip()
 
     cols = [re.sub(r"\s+", " ", c).strip() for c in cols]
-    
     seen = {}
     for i, c in enumerate(cols):
         if c in seen:
@@ -70,8 +121,7 @@ def process_headers(df_raw):
 
     df = df_raw.iloc[header_rows:].copy()
     df.columns = cols
-    df = df.reset_index(drop=True)
-    return df
+    return df.reset_index(drop=True)
 
 def find_col(df, keywords, fallback=None):
     for c in df.columns:
@@ -123,8 +173,8 @@ activity_labels = {
     "ANIMAL CARE": "Animal Care"
 }
 
-st.sidebar.header("Data Source")
-uploaded = st.sidebar.file_uploader("Upload CSV or Excel", type=["csv", "xlsx", "xls"])
+st.sidebar.markdown("### Data Management")
+uploaded = st.sidebar.file_uploader("Upload Dataset (CSV or Excel)", type=["csv", "xlsx", "xls"])
 use_example = st.sidebar.checkbox("Use example dataset (if no upload)", value=True)
 
 df_raw = None
@@ -190,46 +240,58 @@ tabs = st.tabs(["Consumption Profile", "Clustering (K-Means)", "Classification (
 with tabs[0]:
     st.subheader("Household Consumption Profile")
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Households", len(df))
+    c1.metric("Total Households", len(df))
     if "DailyLiters" in df:
-        c2.metric("Mean Daily Use (L)", f"{df['DailyLiters'].mean():.1f}")
-        c3.metric("Median Daily Use (L)", f"{df['DailyLiters'].median():.1f}")
+        c2.metric("Mean Daily Use", f"{df['DailyLiters'].mean():.1f} L")
+        c3.metric("Median Daily Use", f"{df['DailyLiters'].median():.1f} L")
     if "MonthlyBill" in df:
-        c4.metric("Mean Monthly Bill", f"{df['MonthlyBill'].mean():.0f}")
+        c4.metric("Mean Monthly Bill", f"₱ {df['MonthlyBill'].mean():.0f}")
 
-    st.markdown("**Consumption Level Distribution**")
-    if "ConsumptionLevel" in df and df["ConsumptionLevel"].notna().any():
-        lvl = df["ConsumptionLevel"].value_counts().reindex(["Low", "Medium", "High"]).fillna(0)
-        lvl_df = pd.DataFrame({"Level": lvl.index, "Households": lvl.values})
-        st.bar_chart(lvl_df.set_index("Level"))
-        st.write(lvl_df)
-        st.write("Households are split into tertiles of reported daily use, giving equal-size low, medium, and high groups.")
-    else:
-        st.write("Insufficient daily consumption data to derive levels.")
+    st.markdown("---")
+    
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.markdown("### Consumption Level Distribution")
+        if "ConsumptionLevel" in df and df["ConsumptionLevel"].notna().any():
+            lvl = df["ConsumptionLevel"].value_counts().reindex(["Low", "Medium", "High"]).fillna(0)
+            lvl_df = pd.DataFrame({"Level": lvl.index, "Households": lvl.values}).set_index("Level")
+            st.bar_chart(lvl_df, color="#8B5A2B")
+            st.dataframe(lvl_df.T, use_container_width=True)
+        else:
+            st.write("Insufficient daily consumption data.")
+            
+    with col_b:
+        st.markdown("### Households by Water Source")
+        if col_source:
+            src = df[col_source].value_counts().reset_index()
+            src.columns = ["Source", "Households"]
+            src = src.set_index("Source")
+            st.bar_chart(src, color="#4A7C59")
+            st.dataframe(src.T, use_container_width=True)
 
-    st.markdown("**Daily Use by Family Size**")
-    if "FamilySizeNum" in df and df["FamilySizeNum"].notna().any():
-        grp = df.dropna(subset=["FamilySizeNum", "DailyLiters"]).groupby("FamilySizeNum")["DailyLiters"].mean().reset_index()
-        grp["FamilySizeNum"] = grp["FamilySizeNum"].astype(str)
-        st.bar_chart(grp.set_index("FamilySizeNum"))
-        st.write(grp)
+    st.markdown("---")
+    
+    col_c, col_d = st.columns(2)
+    with col_c:
+        st.markdown("### Mean Daily Use by Family Size")
+        if "FamilySizeNum" in df and df["FamilySizeNum"].notna().any():
+            grp = df.dropna(subset=["FamilySizeNum", "DailyLiters"]).groupby("FamilySizeNum")["DailyLiters"].mean().reset_index()
+            grp["FamilySizeNum"] = grp["FamilySizeNum"].astype(str) + " Persons"
+            grp = grp.set_index("FamilySizeNum")
+            st.bar_chart(grp, color="#D97736")
+            st.dataframe(grp.T, use_container_width=True)
 
-    st.markdown("**Daily Use by Income Band**")
-    if "IncomeNum" in df and df["IncomeNum"].notna().any():
-        gi = df.dropna(subset=["IncomeNum", "DailyLiters"]).groupby("IncomeNum")["DailyLiters"].mean().reset_index()
-        gi["IncomeNum"] = gi["IncomeNum"].astype(int).astype(str)
-        st.bar_chart(gi.set_index("IncomeNum"))
-        st.write(gi)
-
-    if col_source:
-        st.markdown("**Households by Water Source**")
-        src = df[col_source].value_counts().reset_index()
-        src.columns = ["Source", "Households"]
-        st.bar_chart(src.set_index("Source"))
-        st.write(src)
+    with col_d:
+        st.markdown("### Mean Daily Use by Income Band")
+        if "IncomeNum" in df and df["IncomeNum"].notna().any():
+            gi = df.dropna(subset=["IncomeNum", "DailyLiters"]).groupby("IncomeNum")["DailyLiters"].mean().reset_index()
+            gi["IncomeNum"] = "₱ " + gi["IncomeNum"].astype(int).astype(str)
+            gi = gi.set_index("IncomeNum")
+            st.bar_chart(gi, color="#7A9E7E")
+            st.dataframe(gi.T, use_container_width=True)
 
 with tabs[1]:
-    st.subheader("K-Means Clustering")
+    st.subheader("K-Means Clustering Analysis")
     feature_cols = [c for c in ["FamilySizeNum", "IncomeNum", "DailyLiters", "MonthlyBill"] if c in df and df[c].notna().any()]
     cluster_ready = df.dropna(subset=feature_cols).copy() if feature_cols else pd.DataFrame()
 
@@ -248,19 +310,28 @@ with tabs[1]:
             wcss.append(km.inertia_)
             sil.append(silhouette_score(Xs, km.labels_))
             dbi.append(davies_bouldin_score(Xs, km.labels_))
+            
         metrics_df = pd.DataFrame({"k": ks, "WCSS": wcss, "Silhouette": sil, "DaviesBouldin": dbi})
-        st.write("**Elbow (WCSS) by k**")
-        st.line_chart(metrics_df.set_index("k")["WCSS"])
-        st.write(metrics_df)
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("### Elbow Method (WCSS)")
+            st.line_chart(metrics_df.set_index("k")["WCSS"], color="#D97736")
+            st.dataframe(metrics_df.set_index("k"), use_container_width=True)
+        with c2:
+            st.markdown("### Silhouette Score")
+            st.line_chart(metrics_df.set_index("k")["Silhouette"], color="#2F5D62")
+            
         best_k = ks[int(np.argmax(sil))]
-        st.metric("Selected k (max silhouette)", best_k)
+        st.info(f"Optimal K selected by maximum Silhouette Score: **{best_k} clusters** (Davies-Bouldin: {dbi[ks.index(best_k)]:.3f})")
+        
         km = KMeans(n_clusters=best_k, n_init=10, random_state=42).fit(Xs)
         cluster_ready["Cluster"] = km.labels_
         prof = cluster_ready.groupby("Cluster")[feature_cols].mean().round(2)
         prof["Households"] = cluster_ready.groupby("Cluster").size()
-        st.write("**Cluster Profiles (means)**")
-        st.dataframe(prof)
-        st.write(f"The silhouette-optimal solution uses {best_k} clusters; Davies-Bouldin of {dbi[ks.index(best_k)]:.3f} indicates cluster separation quality.")
+        
+        st.markdown("### Cluster Profiles (Means)")
+        st.dataframe(prof, use_container_width=True)
     else:
         st.write("Not enough complete records for clustering.")
 
@@ -275,28 +346,35 @@ with tabs[2]:
         tree_df = df.dropna(subset=feat + ["ConsumptionLevel"]).copy()
         
         if len(tree_df) >= 12 and feat:
-            # Convert to strict numpy arrays to avoid pyarrow/pandas slicing errors
             X = tree_df[feat].to_numpy(dtype=np.float64)
             y = tree_df["ConsumptionLevel"].to_numpy(dtype=str)
             
             Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
             clf = DecisionTreeClassifier(max_depth=4, random_state=42).fit(Xtr, ytr)
             pred = clf.predict(Xte)
+            
             acc = accuracy_score(yte, pred)
             p, r, f1, _ = precision_recall_fscore_support(yte, pred, average="macro", zero_division=0)
+            
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Accuracy", f"{acc:.3f}")
-            c2.metric("Precision (macro)", f"{p:.3f}")
-            c3.metric("Recall (macro)", f"{r:.3f}")
-            c4.metric("F1 (macro)", f"{f1:.3f}")
-            labels = sorted(set(yte) | set(pred))
-            cm = confusion_matrix(yte, pred, labels=labels)
-            cm_df = pd.DataFrame(cm, index=[f"Actual {l}" for l in labels], columns=[f"Pred {l}" for l in labels])
-            st.write("**Confusion Matrix**")
-            st.dataframe(cm_df)
-            st.write("**Decision Rules**")
-            st.text(export_text(clf, feature_names=feat))
-            st.write("Accuracy above the 0.70 threshold indicates the model separates low, medium, and high consumers from household attributes reliably.")
+            c2.metric("Precision", f"{p:.3f}")
+            c3.metric("Recall", f"{r:.3f}")
+            c4.metric("F1-Score", f"{f1:.3f}")
+            
+            st.markdown("---")
+            col_cm, col_rules = st.columns([1, 1.5])
+            
+            with col_cm:
+                st.markdown("### Confusion Matrix")
+                labels = sorted(set(yte) | set(pred))
+                cm = confusion_matrix(yte, pred, labels=labels)
+                cm_df = pd.DataFrame(cm, index=[f"Actual {l}" for l in labels], columns=[f"Pred {l}" for l in labels])
+                st.dataframe(cm_df, use_container_width=True)
+                
+            with col_rules:
+                st.markdown("### Decision Tree Rules")
+                st.text(export_text(clf, feature_names=feat, spacing=3))
         else:
             st.write("Insufficient features for classification.")
     else:
@@ -326,11 +404,14 @@ with tabs[3]:
                         show = rules[["antecedents", "consequents", "support", "confidence", "lift"]].copy()
                         show["antecedents"] = show["antecedents"].apply(lambda s: ", ".join(sorted(s)))
                         show["consequents"] = show["consequents"].apply(lambda s: ", ".join(sorted(s)))
-                        st.dataframe(show.reset_index(drop=True))
-                        st.write(f"{len(show)} rules meet support >= 0.10, confidence >= 0.60, and lift > 1.0.")
-                        top = show.head(10).copy()
-                        top["rule"] = top["antecedents"] + " -> " + top["consequents"]
-                        st.bar_chart(top.set_index("rule")["lift"])
+                        
+                        st.markdown("### Discovered Rules (Support >= 0.10, Confidence >= 0.60, Lift > 1.0)")
+                        st.dataframe(show.reset_index(drop=True), use_container_width=True)
+                        
+                        top = show.head(15).copy()
+                        top["Rule"] = top["antecedents"] + " -> " + top["consequents"]
+                        st.markdown("### Top 15 Rules by Lift")
+                        st.bar_chart(top.set_index("Rule")["lift"], color="#D97736")
                     else:
                         st.write("No rules met the confidence and lift thresholds.")
                 else:
@@ -340,55 +421,72 @@ with tabs[3]:
         else:
             st.write("Insufficient records for association rule mining.")
     except ImportError:
-        st.write("Association rule library is unavailable in this environment.")
+        st.write("Association rule library is unavailable.")
 
 with tabs[4]:
     st.subheader("Conservation & Usage Patterns")
     act_present = [c for c in df.columns if any(act in c.upper() for act in activity_cols)]
-    if act_present:
-        st.markdown("**Activity Frequency Profile**")
-        rows = []
-        for c in act_present:
-            label = c
-            for act_key, act_label in activity_labels.items():
-                if act_key in c.upper():
-                    label = act_label
-                    break
-            counts = df[c].str.upper().value_counts()
-            for k, v in counts.items():
-                if k in ["DAILY", "WEEKLY", "MONTHLY", "RARELY", "NEVER"]:
-                    rows.append({"Activity": label, "Frequency": k, "Households": v})
-        af = pd.DataFrame(rows)
-        if not af.empty:
-            pivot = af.pivot_table(index="Activity", columns="Frequency", values="Households", aggfunc="sum").fillna(0)
-            order = [x for x in ["DAILY", "WEEKLY", "MONTHLY", "RARELY", "NEVER"] if x in pivot.columns]
-            pivot = pivot[order]
-            st.bar_chart(pivot)
-            st.write(pivot)
+    
+    col_piv, col_most = st.columns(2)
+    
+    with col_piv:
+        if act_present:
+            st.markdown("### Activity Frequency Profile")
+            rows = []
+            for c in act_present:
+                label = c
+                for act_key, act_label in activity_labels.items():
+                    if act_key in c.upper():
+                        label = act_label
+                        break
+                counts = df[c].str.upper().value_counts()
+                for k, v in counts.items():
+                    if k in ["DAILY", "WEEKLY", "MONTHLY", "RARELY", "NEVER"]:
+                        rows.append({"Activity": label, "Frequency": k, "Households": v})
+            af = pd.DataFrame(rows)
+            if not af.empty:
+                pivot = af.pivot_table(index="Activity", columns="Frequency", values="Households", aggfunc="sum").fillna(0)
+                order = [x for x in ["DAILY", "WEEKLY", "MONTHLY", "RARELY", "NEVER"] if x in pivot.columns]
+                pivot = pivot[order]
+                st.bar_chart(pivot, color=["#4A7C59", "#7A9E7E", "#D97736", "#8B5A2B", "#2F5D62"])
+                st.dataframe(pivot, use_container_width=True)
 
-    if col_most:
-        st.markdown("**Activity Consuming Most Water**")
-        mw = df[col_most].value_counts().reset_index()
-        mw.columns = ["Activity", "Households"]
-        st.bar_chart(mw.set_index("Activity"))
-        st.write(mw)
+    with col_most:
+        if col_most:
+            st.markdown("### Activity Consuming Most Water")
+            mw = df[col_most].value_counts().reset_index()
+            mw.columns = ["Activity", "Households"]
+            mw = mw.set_index("Activity")
+            st.bar_chart(mw, color="#2F5D62")
+            st.dataframe(mw.T, use_container_width=True)
+            
+    st.markdown("---")
+    
+    col_cons, col_prac = st.columns(2)
+    with col_cons:
+        if col_conserve:
+            st.markdown("### Conservation Practice Adoption")
+            cp = df[col_conserve].value_counts().reset_index()
+            cp.columns = ["Response", "Households"]
+            cp = cp.set_index("Response")
+            st.bar_chart(cp, color="#4A7C59")
+            st.dataframe(cp.T, use_container_width=True)
 
-    if col_conserve:
-        st.markdown("**Conservation Practice Adoption**")
-        cp = df[col_conserve].value_counts().reset_index()
-        cp.columns = ["Response", "Households"]
-        st.bar_chart(cp.set_index("Response"))
-        st.write(cp)
-
-    if col_practice:
-        st.markdown("**Top Conservation Methods Applied**")
-        pm = df[col_practice].value_counts().head(10).reset_index()
-        pm.columns = ["Method", "Households"]
-        st.bar_chart(pm.set_index("Method"))
-        st.write(pm)
-
+    with col_prac:
+        if col_practice:
+            st.markdown("### Top Conservation Methods Applied")
+            pm = df[col_practice].value_counts().head(10).reset_index()
+            pm.columns = ["Method", "Households"]
+            pm = pm.set_index("Method")
+            st.bar_chart(pm, color="#D97736")
+            st.dataframe(pm.T, use_container_width=True)
+            
     if col_shortage and col_source:
-        st.markdown("**Water Shortage Experience by Source**")
+        st.markdown("---")
+        st.markdown("### Water Shortage Experience by Source")
         ct = pd.crosstab(df[col_source], df[col_shortage])
-        st.write(ct)
-        st.bar_chart(ct)
+        # Fix Altair ValueError by replacing internal pandas index objects
+        ct.index = ct.index.astype(str)
+        ct.columns = ct.columns.astype(str)
+        st.bar_chart(ct, color=["#4A7C59", "#D97736", "#2F5D62"])
+        st.dataframe(ct, use_container_width=True)
