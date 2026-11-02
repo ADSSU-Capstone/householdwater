@@ -3,8 +3,6 @@ import pandas as pd
 import numpy as np
 import re
 import unicodedata
-from collections import Counter
-import plotly.express as px
 
 st.set_page_config(page_title="Water Usage Dashboard", layout="wide")
 
@@ -32,7 +30,6 @@ st.markdown("""
     }
     div[data-testid="stMetric"] label { color: #6A7C7C !important; font-weight: 600; font-size: 14px; }
     div[data-testid="stMetric"] div[data-testid="stMetricValue"] { color: #D97736 !important; font-weight: 700; }
-    div[data-testid="stDataFrame"] { background-color: #FFFFFF; border-radius: 8px; padding: 10px; border: 1px solid #E0E6E4; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -97,31 +94,15 @@ def parse_bill(val):
     if len(nums) >= 2: return (nums[0] + nums[1]) / 2.0
     return nums[0]
 
-def clean_dataset(df):
-    df = df.dropna(how="all").copy().drop_duplicates()
-    for c in df.columns:
-        if pd.api.types.is_string_dtype(df[c]) or df[c].dtype == object:
-            df[c] = df[c].apply(clean_text)
-    return df.reset_index(drop=True)
-
-def get_vc_list(series):
-    vals = []
-    for v in series:
-        if pd.isna(v): continue
-        s = str(v).strip()
-        if s != "": vals.append(s)
-    counts = Counter(vals)
-    return counts.most_common()
-
-def render_bar(df, x_col, y_col, color_hex="#D97736", title=""):
-    if df.empty: return
-    fig = px.bar(df, x=x_col, y=y_col, title=title)
-    fig.update_traces(marker_color=color_hex)
-    fig.update_layout(
-        plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-        margin=dict(l=0, r=0, t=30, b=0), height=350
-    )
-    st.plotly_chart(fig, use_container_width=True)
+def safe_value_counts(df, col_name):
+    # Converts column to pure python list first to bypass pandas bugs
+    if col_name not in df: return pd.DataFrame(columns=[col_name, "Count"])
+    vals = [str(v).strip() for v in df[col_name].tolist() if str(v).strip() != "" and str(v).lower() != "nan"]
+    counts = {}
+    for v in vals:
+        counts[v] = counts.get(v, 0) + 1
+    sorted_counts = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+    return pd.DataFrame(sorted_counts, columns=[col_name, "Count"])
 
 activity_cols = ["DRINGKING & COOKING", "BATHING", "LAUNDRY", "TOILET FLUSHING", "DISHWASHING", "CLEANING /MOPPING", "WATERING PLANTS", "CAR /VIHICLE WASHING", "ANIMAL CARE"]
 activity_labels = {
@@ -147,7 +128,11 @@ except Exception as e:
     st.error(f"Could not read file: {e}")
     st.stop()
 
-df = clean_dataset(process_headers(df_raw))
+df = process_headers(df_raw)
+
+for c in df.columns:
+    if df[c].dtype == object:
+        df[c] = df[c].apply(clean_text)
 
 col_family = find_col(df, ["NUMBER OF LIVING"])
 col_income = find_col(df, ["MONTHLY", "INCOME"])
@@ -193,18 +178,18 @@ with tabs[0]:
     with col_a:
         st.markdown("### Consumption Level Distribution")
         if "ConsumptionLevel" in df and df["ConsumptionLevel"].notna().any():
-            items = get_vc_list(df["ConsumptionLevel"])
-            ordered = [("Low", next((v for k, v in items if k == "Low"), 0)),
-                       ("Medium", next((v for k, v in items if k == "Medium"), 0)),
-                       ("High", next((v for k, v in items if k == "High"), 0))]
-            c_df = pd.DataFrame(ordered, columns=["Level", "Households"])
-            render_bar(c_df, "Level", "Households", "#D97736")
+            lvl = safe_value_counts(df, "ConsumptionLevel")
+            if not lvl.empty:
+                lvl = lvl.set_index("ConsumptionLevel").reindex(["Low", "Medium", "High"]).fillna(0)
+                st.bar_chart(lvl)
+                st.dataframe(lvl.T, use_container_width=True)
     with col_b:
         st.markdown("### Households by Water Source")
         if col_source: 
-            items = get_vc_list(df[col_source])
-            c_df = pd.DataFrame(items, columns=["Source", "Households"])
-            render_bar(c_df, "Source", "Households", "#4A7C59")
+            src = safe_value_counts(df, col_source)
+            if not src.empty:
+                st.bar_chart(src.set_index(col_source))
+                st.dataframe(src.set_index(col_source).T, use_container_width=True)
 
     st.markdown("---")
     col_c, col_d = st.columns(2)
@@ -213,13 +198,15 @@ with tabs[0]:
         if "FamilySizeNum" in df and df["FamilySizeNum"].notna().any():
             grp = df.dropna(subset=["FamilySizeNum", "DailyLiters"]).groupby("FamilySizeNum")["DailyLiters"].mean().reset_index()
             grp["Label"] = grp["FamilySizeNum"].astype(str) + " Persons"
-            render_bar(grp, "Label", "DailyLiters", "#2D4A3E")
+            st.bar_chart(grp.set_index("Label")[["DailyLiters"]])
+            st.dataframe(grp.set_index("Label")[["DailyLiters"]].T, use_container_width=True)
     with col_d:
         st.markdown("### Mean Daily Use by Income Band")
         if "IncomeNum" in df and df["IncomeNum"].notna().any():
             gi = df.dropna(subset=["IncomeNum", "DailyLiters"]).groupby("IncomeNum")["DailyLiters"].mean().reset_index()
             gi["Label"] = "₱ " + gi["IncomeNum"].astype(int).astype(str)
-            render_bar(gi, "Label", "DailyLiters", "#7A9E7E")
+            st.bar_chart(gi.set_index("Label")[["DailyLiters"]])
+            st.dataframe(gi.set_index("Label")[["DailyLiters"]].T, use_container_width=True)
 
 with tabs[1]:
     st.subheader("K-Means Clustering Analysis")
@@ -241,15 +228,15 @@ with tabs[1]:
             sil.append(silhouette_score(Xs, km.labels_))
             dbi.append(davies_bouldin_score(Xs, km.labels_))
             
-        metrics_df = pd.DataFrame({"k": ks, "WCSS": wcss, "Silhouette": sil, "DaviesBouldin": dbi})
+        metrics_df = pd.DataFrame({"k": ks, "WCSS": wcss, "Silhouette": sil, "DaviesBouldin": dbi}).set_index("k")
         c1, c2 = st.columns(2)
         with c1:
             st.markdown("### Elbow Method (WCSS)")
-            render_bar(metrics_df, "k", "WCSS", "#D97736")
-            st.dataframe(metrics_df.set_index("k"), use_container_width=True)
+            st.line_chart(metrics_df["WCSS"])
+            st.dataframe(metrics_df, use_container_width=True)
         with c2:
             st.markdown("### Silhouette Score")
-            render_bar(metrics_df, "k", "Silhouette", "#2D4A3E")
+            st.line_chart(metrics_df["Silhouette"])
             
         best_k = ks[int(np.argmax(sil))]
         st.info(f"Optimal K selected by maximum Silhouette Score: **{best_k} clusters** (Davies-Bouldin: {dbi[ks.index(best_k)]:.3f})")
@@ -326,7 +313,7 @@ with tabs[3]:
                         top = show.head(15).copy()
                         top["Rule"] = top["antecedents"] + " -> " + top["consequents"]
                         st.markdown("### Top 15 Rules by Lift")
-                        render_bar(top, "Rule", "lift", "#4A7C59")
+                        st.bar_chart(top.set_index("Rule")["lift"])
     except ImportError: st.write("Association rule library unavailable.")
 
 with tabs[4]:
@@ -340,42 +327,47 @@ with tabs[4]:
             rows = []
             for c in act_present:
                 label = next((act_label for act_key, act_label in activity_labels.items() if act_key in c.upper()), c)
-                for k, v in get_vc_list(df[c]):
-                    if str(k).upper() in ["DAILY", "WEEKLY", "MONTHLY", "RARELY", "NEVER"]:
-                        rows.append({"Activity": label, "Frequency": str(k).upper(), "Households": v})
+                counts = safe_value_counts(df, c)
+                for _, row in counts.iterrows():
+                    k = str(row[c]).upper()
+                    if k in ["DAILY", "WEEKLY", "MONTHLY", "RARELY", "NEVER"]:
+                        rows.append({"Activity": label, "Frequency": k, "Households": row["Count"]})
             af = pd.DataFrame(rows)
             if not af.empty:
                 pivot = af.pivot_table(index="Activity", columns="Frequency", values="Households", aggfunc="sum").fillna(0)
                 order = [x for x in ["DAILY", "WEEKLY", "MONTHLY", "RARELY", "NEVER"] if x in pivot.columns]
                 pivot = pivot[order]
-                st.bar_chart(pivot, color=["#2D4A3E", "#4A7C59", "#7A9E7E", "#D97736", "#8B5A2B"])
+                st.bar_chart(pivot)
                 st.dataframe(pivot, use_container_width=True)
 
     with col_most:
         if col_most:
             st.markdown("### Activity Consuming Most Water")
-            items = get_vc_list(df[col_most])
-            c_df = pd.DataFrame(items, columns=["Activity", "Households"])
-            render_bar(c_df, "Activity", "Households", "#D97736")
+            mw = safe_value_counts(df, col_most)
+            if not mw.empty:
+                st.bar_chart(mw.set_index(col_most))
+                st.dataframe(mw.set_index(col_most).T, use_container_width=True)
             
     st.markdown("---")
     col_cons, col_prac = st.columns(2)
     with col_cons:
         if col_conserve:
             st.markdown("### Conservation Practice Adoption")
-            items = get_vc_list(df[col_conserve])
-            c_df = pd.DataFrame(items, columns=["Response", "Households"])
-            render_bar(c_df, "Response", "Households", "#2D4A3E")
+            cp = safe_value_counts(df, col_conserve)
+            if not cp.empty:
+                st.bar_chart(cp.set_index(col_conserve))
+                st.dataframe(cp.set_index(col_conserve).T, use_container_width=True)
     with col_prac:
         if col_practice:
             st.markdown("### Top Conservation Methods Applied")
-            items = get_vc_list(df[col_practice])[:10]
-            c_df = pd.DataFrame(items, columns=["Method", "Households"])
-            render_bar(c_df, "Method", "Households", "#7A9E7E")
+            pm = safe_value_counts(df, col_practice).head(10)
+            if not pm.empty:
+                st.bar_chart(pm.set_index(col_practice))
+                st.dataframe(pm.set_index(col_practice).T, use_container_width=True)
             
     if col_shortage and col_source:
         st.markdown("---")
         st.markdown("### Water Shortage Experience by Source")
         ct = pd.crosstab(df[col_source].astype(str), df[col_shortage].astype(str))
-        st.bar_chart(ct, color=["#2D4A3E", "#4A7C59", "#D97736"])
+        st.bar_chart(ct)
         st.dataframe(ct, use_container_width=True)
