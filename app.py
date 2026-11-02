@@ -6,13 +6,12 @@ import unicodedata
 
 st.set_page_config(page_title="Water Usage Dashboard", layout="wide")
 
+# CUSTOM SAGE / TERRACOTTA THEME
 st.markdown("""
 <style>
-    /* Main Background and Text */
     .stApp { background-color: #F4F7F5; }
     h1, h2, h3 { color: #2D4A3E !important; font-family: 'Helvetica Neue', sans-serif; }
     
-    /* Custom Tabs */
     .stTabs [data-baseweb="tab-list"] { gap: 12px; background-color: transparent; }
     .stTabs [data-baseweb="tab"] {
         height: 50px; background-color: #FFFFFF; border: 1px solid #D1D8D6;
@@ -26,19 +25,12 @@ st.markdown("""
     }
     .stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] { display: none; }
     
-    /* Metric Cards */
     div[data-testid="stMetric"] {
         background-color: #FFFFFF; border: 1px solid #E0E6E4; border-radius: 10px; 
         padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.02); text-align: center;
     }
     div[data-testid="stMetric"] label { color: #6A7C7C !important; font-weight: 600; font-size: 14px; }
     div[data-testid="stMetric"] div[data-testid="stMetricValue"] { color: #D97736 !important; font-weight: 700; }
-    
-    /* Custom Bar Chart CSS */
-    .custom-bar-container { margin-bottom: 16px; font-family: 'Helvetica Neue', sans-serif; }
-    .custom-bar-label { display: flex; justify-content: space-between; font-size: 14px; color: #4A5D5D; margin-bottom: 6px; font-weight: 600; }
-    .custom-bar-bg { width: 100%; background-color: #E8EDEA; border-radius: 6px; height: 24px; overflow: hidden; }
-    .custom-bar-fill { height: 100%; background-color: #D97736; border-radius: 6px; transition: width 1s ease; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -104,25 +96,27 @@ def parse_bill(val):
     return nums[0]
 
 def get_vc_list(series):
-    vals = [str(v).strip() for v in series.tolist() if str(v).strip() != "" and str(v).lower() != "nan"]
+    # Bulletproof counting mechanism to avoid pandas 2.x crashes
     counts = {}
-    for v in vals:
-        counts[v] = counts.get(v, 0) + 1
+    try:
+        for v in series:
+            if pd.isna(v): continue
+            s = str(v).strip()
+            if s == "" or s.lower() == "nan": continue
+            counts[s] = counts.get(s, 0) + 1
+    except Exception:
+        pass
     return sorted(counts.items(), key=lambda x: x[1], reverse=True)
 
 def draw_bars(items, label_header="Label", value_header="Count", is_float=False):
     if not items: return
     max_val = max([v for k, v in items]) if items else 0
-    html = f"<div style='display:flex; justify-content:space-between; font-weight:bold; border-bottom:2px solid #D1D8D6; padding-bottom:8px; margin-bottom:16px; color:#2D4A3E;'><span>{label_header}</span><span>{value_header}</span></div>"
+    # STRICT SINGLE LINE HTML TO PREVENT MARKDOWN CODE BLOCK BUG
+    html = f"<div style='display:flex;justify-content:space-between;font-weight:bold;border-bottom:2px solid #D1D8D6;padding-bottom:8px;margin-bottom:16px;color:#2D4A3E;'><span>{label_header}</span><span>{value_header}</span></div>"
     for label, value in items:
         pct = (value / max_val) * 100 if max_val > 0 else 0
         display_val = f"{value:,.2f}" if is_float else f"{value:,}"
-        html += f"""
-        <div class="custom-bar-container">
-            <div class="custom-bar-label"><span>{label}</span><span>{display_val}</span></div>
-            <div class="custom-bar-bg"><div class="custom-bar-fill" style="width: {pct}%;"></div></div>
-        </div>
-        """
+        html += f"<div style='margin-bottom:16px;font-family:Helvetica Neue,sans-serif;'><div style='display:flex;justify-content:space-between;font-size:14px;color:#4A5D5D;margin-bottom:6px;font-weight:600;'><span>{label}</span><span>{display_val}</span></div><div style='width:100%;background-color:#E8EDEA;border-radius:6px;height:24px;overflow:hidden;'><div style='height:100%;background-color:#D97736;border-radius:6px;width:{pct}%;'></div></div></div>"
     st.markdown(html, unsafe_allow_html=True)
 
 activity_cols = ["DRINGKING & COOKING", "BATHING", "LAUNDRY", "TOILET FLUSHING", "DISHWASHING", "CLEANING /MOPPING", "WATERING PLANTS", "CAR /VIHICLE WASHING", "ANIMAL CARE"]
@@ -150,7 +144,6 @@ except Exception as e:
     st.stop()
 
 df = process_headers(df_raw)
-
 for c in df.columns:
     if df[c].dtype == object:
         df[c] = df[c].apply(clean_text)
@@ -206,8 +199,7 @@ with tabs[0]:
             draw_bars(ordered, "Level", "Households")
     with col_b:
         st.markdown("### Households by Water Source")
-        if col_source: 
-            draw_bars(get_vc_list(df[col_source]), "Source", "Households")
+        if col_source: draw_bars(get_vc_list(df[col_source]), "Source", "Households")
 
     st.markdown("---")
     col_c, col_d = st.columns(2)
@@ -354,7 +346,6 @@ with tabs[4]:
                 order = [x for x in ["DAILY", "WEEKLY", "MONTHLY", "RARELY", "NEVER"] if x in pivot.columns]
                 pivot = pivot[order]
                 st.dataframe(pivot, use_container_width=True)
-                # Render a stacked bar chart manually
                 for activity in pivot.index:
                     st.markdown(f"**{activity}**")
                     counts = [(f, pivot.loc[activity, f]) for f in order if pivot.loc[activity, f] > 0]
