@@ -145,9 +145,16 @@ def clean_dataset(df):
             df[c] = df[c].apply(clean_text)
     return df.reset_index(drop=True)
 
-def get_vc(series):
-    # convert to pure python strings to avoid pandas 2.x mixed-type object internals crash
-    return pd.Series(series.dropna().astype(str).tolist()).value_counts()
+def get_vc_data(series):
+    # extracts counts manually into python dict to bypass pandas internals bug
+    counts = {}
+    for val in series:
+        if pd.isna(val): continue
+        s = str(val).strip()
+        if s == "": continue
+        counts[s] = counts.get(s, 0) + 1
+    sorted_items = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+    return pd.DataFrame(sorted_items, columns=["Label", "Count"]).set_index("Label")
 
 activity_cols = [
     "DRINGKING & COOKING", "BATHING", "LAUNDRY", "TOILET FLUSHING",
@@ -241,8 +248,7 @@ with tabs[0]:
     with col_a:
         st.markdown("### Consumption Level Distribution")
         if "ConsumptionLevel" in df and df["ConsumptionLevel"].notna().any():
-            lvl = get_vc(df["ConsumptionLevel"]).reindex(["Low", "Medium", "High"]).fillna(0)
-            lvl_df = pd.DataFrame({"Level": lvl.index, "Households": lvl.values}).set_index("Level")
+            lvl_df = get_vc_data(df["ConsumptionLevel"]).reindex(["Low", "Medium", "High"]).fillna(0)
             st.bar_chart(lvl_df)
             st.dataframe(lvl_df.T, use_container_width=True)
         else:
@@ -251,11 +257,9 @@ with tabs[0]:
     with col_b:
         st.markdown("### Households by Water Source")
         if col_source:
-            src = get_vc(df[col_source]).reset_index()
-            src.columns = ["Source", "Households"]
-            src = src.set_index("Source")
-            st.bar_chart(src)
-            st.dataframe(src.T, use_container_width=True)
+            src_df = get_vc_data(df[col_source])
+            st.bar_chart(src_df)
+            st.dataframe(src_df.T, use_container_width=True)
 
     st.markdown("---")
     
@@ -427,10 +431,11 @@ with tabs[4]:
                     if act_key in c.upper():
                         label = act_label
                         break
-                counts = get_vc(df[c])
-                for k, v in counts.items():
-                    if str(k).upper() in ["DAILY", "WEEKLY", "MONTHLY", "RARELY", "NEVER"]:
-                        rows.append({"Activity": label, "Frequency": str(k).upper(), "Households": v})
+                counts_df = get_vc_data(df[c])
+                for idx, row in counts_df.iterrows():
+                    k = str(idx).upper()
+                    if k in ["DAILY", "WEEKLY", "MONTHLY", "RARELY", "NEVER"]:
+                        rows.append({"Activity": label, "Frequency": k, "Households": row["Count"]})
             af = pd.DataFrame(rows)
             if not af.empty:
                 pivot = af.pivot_table(index="Activity", columns="Frequency", values="Households", aggfunc="sum").fillna(0)
@@ -442,9 +447,7 @@ with tabs[4]:
     with col_most:
         if col_most:
             st.markdown("### Activity Consuming Most Water")
-            mw = get_vc(df[col_most]).reset_index()
-            mw.columns = ["Activity", "Households"]
-            mw = mw.set_index("Activity")
+            mw = get_vc_data(df[col_most])
             st.bar_chart(mw)
             st.dataframe(mw.T, use_container_width=True)
             
@@ -454,18 +457,14 @@ with tabs[4]:
     with col_cons:
         if col_conserve:
             st.markdown("### Conservation Practice Adoption")
-            cp = get_vc(df[col_conserve]).reset_index()
-            cp.columns = ["Response", "Households"]
-            cp = cp.set_index("Response")
+            cp = get_vc_data(df[col_conserve])
             st.bar_chart(cp)
             st.dataframe(cp.T, use_container_width=True)
 
     with col_prac:
         if col_practice:
             st.markdown("### Top Conservation Methods Applied")
-            pm = get_vc(df[col_practice]).head(10).reset_index()
-            pm.columns = ["Method", "Households"]
-            pm = pm.set_index("Method")
+            pm = get_vc_data(df[col_practice]).head(10)
             st.bar_chart(pm)
             st.dataframe(pm.T, use_container_width=True)
             
