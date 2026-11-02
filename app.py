@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import re
 import unicodedata
+from collections import Counter
 
 st.set_page_config(page_title="Water Usage Dashboard", layout="wide")
 
@@ -10,6 +11,7 @@ st.markdown("""
 <style>
     .stApp { background-color: #F9F9F8; }
     h1, h2, h3 { color: #2D4A3E !important; font-family: 'Helvetica Neue', sans-serif; }
+    
     .stTabs [data-baseweb="tab-list"] { gap: 10px; background-color: transparent; }
     .stTabs [data-baseweb="tab"] {
         height: 50px; background-color: #FFFFFF; border: 1px solid #D1D8D6;
@@ -22,15 +24,15 @@ st.markdown("""
         border-color: #2D4A3E !important; box-shadow: 0 4px 10px rgba(45, 74, 62, 0.2);
     }
     .stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] { display: none; }
+    
     div[data-testid="stMetric"] {
         background-color: #FFFFFF; border: 1px solid #E0E6E4; border-radius: 10px; 
         padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.02); text-align: center;
     }
     div[data-testid="stMetric"] label { color: #6A7C7C !important; font-weight: 600; font-size: 14px; }
     div[data-testid="stMetric"] div[data-testid="stMetricValue"] { color: #D97736 !important; font-weight: 700; }
-    div[data-testid="stDataFrame"] {
-        background-color: #FFFFFF; border-radius: 8px; padding: 10px; border: 1px solid #E0E6E4;
-    }
+    div[data-testid="stDataFrame"] { background-color: #FFFFFF; border-radius: 8px; padding: 10px; border: 1px solid #E0E6E4; }
+    
     .custom-bar-container { margin-bottom: 12px; font-family: 'Helvetica Neue', sans-serif; }
     .custom-bar-label { display: flex; justify-content: space-between; font-size: 13px; color: #4A5D5D; margin-bottom: 4px; font-weight: 600; }
     .custom-bar-bg { width: 100%; background-color: #EEF2F0; border-radius: 4px; height: 20px; }
@@ -107,23 +109,21 @@ def clean_dataset(df):
     return df.reset_index(drop=True)
 
 def get_vc_list(series):
-    counts = {}
-    for val in series:
-        if pd.isna(val): continue
-        s = str(val).strip()
-        if s == "": continue
-        counts[s] = counts.get(s, 0) + 1
-    return sorted(counts.items(), key=lambda x: x[1], reverse=True)
+    # Pure Python implementation to bypass pandas bugs completely
+    vals = [str(v).strip() for v in series.dropna().tolist() if str(v).strip() != ""]
+    counts = Counter(vals)
+    return counts.most_common()
 
-def draw_custom_bars(items):
+def draw_custom_bars(items, label_header="Label", value_header="Value"):
     if not items: return
     max_val = max([v for k, v in items]) if items else 0
-    html = ""
+    html = f"<div style='display:flex; justify-content:space-between; font-weight:bold; border-bottom:1px solid #D1D8D6; padding-bottom:8px; margin-bottom:12px; color:#2D4A3E;'><span>{label_header}</span><span>{value_header}</span></div>"
     for label, value in items:
         pct = (value / max_val) * 100 if max_val > 0 else 0
+        display_val = f"{value:,.1f}" if isinstance(value, float) else f"{value:,}"
         html += f"""
         <div class="custom-bar-container">
-            <div class="custom-bar-label"><span>{label}</span><span>{value:,.1f}</span></div>
+            <div class="custom-bar-label"><span>{label}</span><span>{display_val}</span></div>
             <div class="custom-bar-bg"><div class="custom-bar-fill" style="width: {pct}%;"></div></div>
         </div>
         """
@@ -204,11 +204,11 @@ with tabs[0]:
             ordered = [("Low", next((v for k, v in items if k == "Low"), 0)),
                        ("Medium", next((v for k, v in items if k == "Medium"), 0)),
                        ("High", next((v for k, v in items if k == "High"), 0))]
-            draw_custom_bars(ordered)
+            draw_custom_bars(ordered, "Level", "Households")
         else: st.write("Insufficient daily consumption data.")
     with col_b:
         st.markdown("### Households by Water Source")
-        if col_source: draw_custom_bars(get_vc_list(df[col_source]))
+        if col_source: draw_custom_bars(get_vc_list(df[col_source]), "Source", "Households")
 
     st.markdown("---")
     col_c, col_d = st.columns(2)
@@ -217,13 +217,13 @@ with tabs[0]:
         if "FamilySizeNum" in df and df["FamilySizeNum"].notna().any():
             grp = df.dropna(subset=["FamilySizeNum", "DailyLiters"]).groupby("FamilySizeNum")["DailyLiters"].mean().reset_index()
             items = [(f"{row['FamilySizeNum']} Persons", row["DailyLiters"]) for _, row in grp.iterrows()]
-            draw_custom_bars(items)
+            draw_custom_bars(items, "Family Size", "Mean Liters")
     with col_d:
         st.markdown("### Mean Daily Use by Income Band")
         if "IncomeNum" in df and df["IncomeNum"].notna().any():
             gi = df.dropna(subset=["IncomeNum", "DailyLiters"]).groupby("IncomeNum")["DailyLiters"].mean().reset_index()
             items = [(f"₱ {int(row['IncomeNum'])}", row["DailyLiters"]) for _, row in gi.iterrows()]
-            draw_custom_bars(items)
+            draw_custom_bars(items, "Income Band", "Mean Liters")
 
 with tabs[1]:
     st.subheader("K-Means Clustering Analysis")
@@ -330,7 +330,7 @@ with tabs[3]:
                         top = show.head(15).copy()
                         items = [(f"{row['antecedents']} -> {row['consequents']}", row["lift"]) for _, row in top.iterrows()]
                         st.markdown("### Top 15 Rules by Lift")
-                        draw_custom_bars(items)
+                        draw_custom_bars(items, "Association Rule", "Lift")
     except ImportError: st.write("Association rule library unavailable.")
 
 with tabs[4]:
@@ -352,28 +352,28 @@ with tabs[4]:
                 pivot = af.pivot_table(index="Activity", columns="Frequency", values="Households", aggfunc="sum").fillna(0)
                 order = [x for x in ["DAILY", "WEEKLY", "MONTHLY", "RARELY", "NEVER"] if x in pivot.columns]
                 pivot = pivot[order]
-                st.bar_chart(pivot)
+                st.bar_chart(pivot, color=["#2D4A3E", "#4A7C59", "#7A9E7E", "#D97736", "#8B5A2B"])
                 st.dataframe(pivot, use_container_width=True)
 
     with col_most:
         if col_most:
             st.markdown("### Activity Consuming Most Water")
-            draw_custom_bars(get_vc_list(df[col_most]))
+            draw_custom_bars(get_vc_list(df[col_most]), "Activity", "Households")
             
     st.markdown("---")
     col_cons, col_prac = st.columns(2)
     with col_cons:
         if col_conserve:
             st.markdown("### Conservation Practice Adoption")
-            draw_custom_bars(get_vc_list(df[col_conserve]))
+            draw_custom_bars(get_vc_list(df[col_conserve]), "Response", "Households")
     with col_prac:
         if col_practice:
             st.markdown("### Top Conservation Methods Applied")
-            draw_custom_bars(get_vc_list(df[col_practice])[:10])
+            draw_custom_bars(get_vc_list(df[col_practice])[:10], "Method", "Households")
             
     if col_shortage and col_source:
         st.markdown("---")
         st.markdown("### Water Shortage Experience by Source")
         ct = pd.crosstab(df[col_source].astype(str), df[col_shortage].astype(str))
-        st.bar_chart(ct)
+        st.bar_chart(ct, color=["#2D4A3E", "#4A7C59", "#D97736"])
         st.dataframe(ct, use_container_width=True)
