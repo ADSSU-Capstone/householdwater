@@ -255,7 +255,7 @@ with tabs[0]:
         if "ConsumptionLevel" in df and df["ConsumptionLevel"].notna().any():
             lvl = df["ConsumptionLevel"].value_counts().reindex(["Low", "Medium", "High"]).fillna(0)
             lvl_df = pd.DataFrame({"Level": lvl.index, "Households": lvl.values}).set_index("Level")
-            st.bar_chart(lvl_df, color="#8B5A2B")
+            st.bar_chart(lvl_df)
             st.dataframe(lvl_df.T, use_container_width=True)
         else:
             st.write("Insufficient daily consumption data.")
@@ -266,7 +266,7 @@ with tabs[0]:
             src = df[col_source].value_counts().reset_index()
             src.columns = ["Source", "Households"]
             src = src.set_index("Source")
-            st.bar_chart(src, color="#4A7C59")
+            st.bar_chart(src)
             st.dataframe(src.T, use_container_width=True)
 
     st.markdown("---")
@@ -278,7 +278,7 @@ with tabs[0]:
             grp = df.dropna(subset=["FamilySizeNum", "DailyLiters"]).groupby("FamilySizeNum")["DailyLiters"].mean().reset_index()
             grp["FamilySizeNum"] = grp["FamilySizeNum"].astype(str) + " Persons"
             grp = grp.set_index("FamilySizeNum")
-            st.bar_chart(grp, color="#D97736")
+            st.bar_chart(grp)
             st.dataframe(grp.T, use_container_width=True)
 
     with col_d:
@@ -287,7 +287,7 @@ with tabs[0]:
             gi = df.dropna(subset=["IncomeNum", "DailyLiters"]).groupby("IncomeNum")["DailyLiters"].mean().reset_index()
             gi["IncomeNum"] = "₱ " + gi["IncomeNum"].astype(int).astype(str)
             gi = gi.set_index("IncomeNum")
-            st.bar_chart(gi, color="#7A9E7E")
+            st.bar_chart(gi)
             st.dataframe(gi.T, use_container_width=True)
 
 with tabs[1]:
@@ -316,11 +316,11 @@ with tabs[1]:
         c1, c2 = st.columns(2)
         with c1:
             st.markdown("### Elbow Method (WCSS)")
-            st.line_chart(metrics_df.set_index("k")["WCSS"], color="#D97736")
+            st.line_chart(metrics_df.set_index("k")["WCSS"])
             st.dataframe(metrics_df.set_index("k"), use_container_width=True)
         with c2:
             st.markdown("### Silhouette Score")
-            st.line_chart(metrics_df.set_index("k")["Silhouette"], color="#2F5D62")
+            st.line_chart(metrics_df.set_index("k")["Silhouette"])
             
         best_k = ks[int(np.argmax(sil))]
         st.info(f"Optimal K selected by maximum Silhouette Score: **{best_k} clusters** (Davies-Bouldin: {dbi[ks.index(best_k)]:.3f})")
@@ -411,7 +411,7 @@ with tabs[3]:
                         top = show.head(15).copy()
                         top["Rule"] = top["antecedents"] + " -> " + top["consequents"]
                         st.markdown("### Top 15 Rules by Lift")
-                        st.bar_chart(top.set_index("Rule")["lift"], color="#D97736")
+                        st.bar_chart(top.set_index("Rule")["lift"])
                     else:
                         st.write("No rules met the confidence and lift thresholds.")
                 else:
@@ -439,7 +439,7 @@ with tabs[4]:
                     if act_key in c.upper():
                         label = act_label
                         break
-                counts = df[c].str.upper().value_counts()
+                counts = df[c].astype(str).str.upper().value_counts()
                 for k, v in counts.items():
                     if k in ["DAILY", "WEEKLY", "MONTHLY", "RARELY", "NEVER"]:
                         rows.append({"Activity": label, "Frequency": k, "Households": v})
@@ -448,16 +448,16 @@ with tabs[4]:
                 pivot = af.pivot_table(index="Activity", columns="Frequency", values="Households", aggfunc="sum").fillna(0)
                 order = [x for x in ["DAILY", "WEEKLY", "MONTHLY", "RARELY", "NEVER"] if x in pivot.columns]
                 pivot = pivot[order]
-                st.bar_chart(pivot, color=["#4A7C59", "#7A9E7E", "#D97736", "#8B5A2B", "#2F5D62"])
+                st.bar_chart(pivot)
                 st.dataframe(pivot, use_container_width=True)
 
     with col_most:
         if col_most:
             st.markdown("### Activity Consuming Most Water")
-            mw = df[col_most].value_counts().reset_index()
+            mw = df[col_most].astype(str).value_counts().reset_index()
             mw.columns = ["Activity", "Households"]
             mw = mw.set_index("Activity")
-            st.bar_chart(mw, color="#2F5D62")
+            st.bar_chart(mw)
             st.dataframe(mw.T, use_container_width=True)
             
     st.markdown("---")
@@ -466,27 +466,24 @@ with tabs[4]:
     with col_cons:
         if col_conserve:
             st.markdown("### Conservation Practice Adoption")
-            cp = df[col_conserve].value_counts().reset_index()
+            cp = df[col_conserve].astype(str).value_counts().reset_index()
             cp.columns = ["Response", "Households"]
             cp = cp.set_index("Response")
-            st.bar_chart(cp, color="#4A7C59")
+            st.bar_chart(cp)
             st.dataframe(cp.T, use_container_width=True)
 
     with col_prac:
         if col_practice:
             st.markdown("### Top Conservation Methods Applied")
-            pm = df[col_practice].value_counts().head(10).reset_index()
+            pm = df[col_practice].astype(str).value_counts().head(10).reset_index()
             pm.columns = ["Method", "Households"]
             pm = pm.set_index("Method")
-            st.bar_chart(pm, color="#D97736")
+            st.bar_chart(pm)
             st.dataframe(pm.T, use_container_width=True)
             
     if col_shortage and col_source:
         st.markdown("---")
         st.markdown("### Water Shortage Experience by Source")
-        ct = pd.crosstab(df[col_source], df[col_shortage])
-        # Fix Altair ValueError by replacing internal pandas index objects
-        ct.index = ct.index.astype(str)
-        ct.columns = ct.columns.astype(str)
-        st.bar_chart(ct, color=["#4A7C59", "#D97736", "#2F5D62"])
+        ct = pd.crosstab(df[col_source].astype(str), df[col_shortage].astype(str))
+        st.bar_chart(ct)
         st.dataframe(ct, use_container_width=True)
