@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import re
-import io
 import unicodedata
 
 st.set_page_config(page_title="Household Water Usage Analysis", layout="wide")
@@ -37,13 +36,25 @@ def clean_text(val):
 
 def load_example():
     try:
-        return pd.read_excel(EXAMPLE_PATH)
+        return pd.read_excel(EXAMPLE_PATH, header=None)
     except Exception:
         return None
 
-def normalize_columns(df):
-    df = df.copy()
-    df.columns = [clean_text(c) for c in df.columns]
+def process_headers(df_raw):
+    # The dataset has split headers across the first 3 rows. Merge them.
+    h1 = df_raw.iloc[0].fillna("").astype(str).apply(clean_text)
+    h2 = df_raw.iloc[1].fillna("").astype(str).apply(clean_text)
+    h3 = df_raw.iloc[2].fillna("").astype(str).apply(clean_text)
+    
+    new_cols = []
+    for c1, c2, c3 in zip(h1, h2, h3):
+        combined = f"{c1} {c2} {c3}".strip()
+        combined = re.sub(r"\s+", " ", combined)
+        new_cols.append(combined)
+        
+    df = df_raw.iloc[3:].copy()
+    df.columns = new_cols
+    df = df.reset_index(drop=True)
     return df
 
 def find_col(df, keywords, fallback=None):
@@ -55,36 +66,27 @@ def find_col(df, keywords, fallback=None):
 
 def parse_daily_liters(val):
     s = clean_text(val).upper()
-    if s == "":
-        return np.nan
+    if s == "": return np.nan
     nums = re.findall(r"\d+", s.replace(",", ""))
-    if not nums:
-        return np.nan
-    if "MORE THAN 300" in s or "MORE THAN300" in s:
-        return 350.0
-    if "LESS THAN 50" in s:
-        return 25.0
+    if not nums: return np.nan
+    if "MORE THAN 300" in s or "MORE THAN300" in s: return 350.0
+    if "LESS THAN 50" in s: return 25.0
     if len(nums) >= 2:
-        lo, hi = float(nums[0]), float(nums[1])
-        return (lo + hi) / 2.0
+        return (float(nums[0]) + float(nums[1])) / 2.0
     return float(nums[0])
 
 def parse_bill(val):
     s = clean_text(val).upper()
-    if s == "" or "NO WATER BILL" in s:
-        return np.nan
-    if "ABOVE 1,000" in s or "ABOVE 1000" in s:
-        return 1200.0
+    if s == "" or "NO WATER BILL" in s: return np.nan
+    if "ABOVE 1,000" in s or "ABOVE 1000" in s: return 1200.0
     nums = re.findall(r"\d[\d,]*", s)
     nums = [float(n.replace(",", "")) for n in nums]
-    if not nums:
-        return np.nan
+    if not nums: return np.nan
     if len(nums) >= 2:
         return (nums[0] + nums[1]) / 2.0
     return nums[0]
 
 def clean_dataset(df):
-    df = normalize_columns(df)
     df = df.dropna(how="all")
     df = df.drop_duplicates()
     for c in df.columns:
@@ -97,20 +99,13 @@ activity_cols = [
     "DISHWASHING", "CLEANING /MOPPING", "WATERING PLANTS",
     "CAR /VIHICLE WASHING", "ANIMAL CARE"
 ]
-
 activity_labels = {
-    "DRINGKING & COOKING": "Drinking & Cooking",
-    "BATHING": "Bathing",
-    "LAUNDRY": "Laundry",
-    "TOILET FLUSHING": "Toilet Flushing",
-    "DISHWASHING": "Dishwashing",
-    "CLEANING /MOPPING": "Cleaning / Mopping",
-    "WATERING PLANTS": "Watering Plants",
-    "CAR /VIHICLE WASHING": "Car / Vehicle Washing",
+    "DRINGKING & COOKING": "Drinking & Cooking", "BATHING": "Bathing",
+    "LAUNDRY": "Laundry", "TOILET FLUSHING": "Toilet Flushing",
+    "DISHWASHING": "Dishwashing", "CLEANING /MOPPING": "Cleaning / Mopping",
+    "WATERING PLANTS": "Watering Plants", "CAR /VIHICLE WASHING": "Car / Vehicle Washing",
     "ANIMAL CARE": "Animal Care"
 }
-
-freq_map = {"NEVER": 0, "RARELY": 1, "MONTHLY": 2, "WEEKLY": 3, "DAILY": 4}
 
 st.sidebar.header("Data Source")
 uploaded = st.sidebar.file_uploader("Upload CSV or Excel", type=["csv", "xlsx", "xls"])
@@ -120,9 +115,9 @@ df_raw = None
 if uploaded is not None:
     try:
         if uploaded.name.lower().endswith(".csv"):
-            df_raw = pd.read_csv(uploaded)
+            df_raw = pd.read_csv(uploaded, header=None)
         else:
-            df_raw = pd.read_excel(uploaded)
+            df_raw = pd.read_excel(uploaded, header=None)
     except Exception as e:
         st.sidebar.error(f"Could not read file: {e}")
 elif use_example:
@@ -132,7 +127,8 @@ if df_raw is None:
     st.info("No dataset loaded. Upload a CSV or Excel file, or enable the example dataset in the sidebar.")
     st.stop()
 
-df = clean_dataset(df_raw)
+df_merged = process_headers(df_raw)
+df = clean_dataset(df_merged)
 
 col_family = find_col(df, ["NUMBER OF LIVING"])
 col_income = find_col(df, ["MONTHLY", "INCOME"])
@@ -142,9 +138,7 @@ col_bill = find_col(df, ["AVERAGE MONTHLY WATER BILL"])
 col_conserve = find_col(df, ["PRACTICE WATER CONSERVATION"])
 col_practice = find_col(df, ["WHICH OF THE FOLLOWING WATER CONSERVATION"])
 col_most = find_col(df, ["WHICH HUSEHOLD ACTIVITY CONSUMES"])
-col_quality = find_col(df, ["RATE THE QUALITY OF WATER"])
 col_shortage = find_col(df, ["EXPERIENCE WATER SHORTAGE"])
-col_availability = find_col(df, ["WATER SUPPLY AVAILABLE"])
 
 if col_daily:
     df["DailyLiters"] = df[col_daily].apply(parse_daily_liters)
@@ -156,39 +150,26 @@ if col_daily:
     if len(valid) >= 6:
         q1, q2 = valid.quantile(0.33), valid.quantile(0.66)
         def bin_level(x):
-            if pd.isna(x):
-                return np.nan
-            if x <= q1:
-                return "Low"
-            if x <= q2:
-                return "Medium"
+            if pd.isna(x): return np.nan
+            if x <= q1: return "Low"
+            if x <= q2: return "Medium"
             return "High"
         df["ConsumptionLevel"] = df["DailyLiters"].apply(bin_level)
     else:
         df["ConsumptionLevel"] = np.nan
 
-family_map = {
-    "1-2 PERSON": 1.5, "3-4 PERSON": 3.5, "5-6 PERSON": 5.5,
-    "7-8 PERSON": 7.5, "9 OR MORE": 9.5
-}
+family_map = {"1-2 PERSON": 1.5, "3-4 PERSON": 3.5, "5-6 PERSON": 5.5, "7-8 PERSON": 7.5, "9 OR MORE": 9.5}
 if col_family:
     df["FamilySizeNum"] = df[col_family].str.upper().map(family_map)
 
 income_map = {
     "5000": 5000, "5,000": 5000, "5,000-10,000": 7500, "10,000-15,000": 12500,
-    "15,000,20,000": 17500, "15,000-20,000": 17500, "20,000-30,000": 25000,
-    "ABOVE 30,000": 35000
+    "15,000,20,000": 17500, "15,000-20,000": 17500, "20,000-30,000": 25000, "ABOVE 30,000": 35000
 }
 if col_income:
     df["IncomeNum"] = df[col_income].str.upper().map(income_map)
 
-tabs = st.tabs([
-    "Consumption Profile",
-    "Clustering (K-Means)",
-    "Classification (Decision Tree)",
-    "Association Rules (Apriori)",
-    "Conservation & Usage Patterns"
-])
+tabs = st.tabs(["Consumption Profile", "Clustering (K-Means)", "Classification (Decision Tree)", "Association Rules (Apriori)", "Conservation & Usage Patterns"])
 
 with tabs[0]:
     st.subheader("Household Consumption Profile")
@@ -274,7 +255,6 @@ with tabs[2]:
         from sklearn.tree import DecisionTreeClassifier, export_text
         from sklearn.model_selection import train_test_split
         from sklearn.metrics import accuracy_score, precision_recall_fscore_support, confusion_matrix
-        from sklearn.preprocessing import LabelEncoder
 
         feat = [c for c in ["FamilySizeNum", "IncomeNum", "MonthlyBill"] if c in df and df[c].notna().any()]
         tree_df = df.dropna(subset=feat + ["ConsumptionLevel"])
@@ -345,20 +325,27 @@ with tabs[3]:
 
 with tabs[4]:
     st.subheader("Conservation & Usage Patterns")
-    act_present = [c for c in activity_cols if c in df.columns]
+    act_present = [c for c in df.columns if any(act in c.upper() for act in activity_cols)]
     if act_present:
         st.markdown("**Activity Frequency Profile**")
         rows = []
         for c in act_present:
+            label = c
+            for act_key, act_label in activity_labels.items():
+                if act_key in c.upper():
+                    label = act_label
+                    break
             counts = df[c].str.upper().value_counts()
             for k, v in counts.items():
-                rows.append({"Activity": activity_labels.get(c, c), "Frequency": k, "Households": v})
+                if k in ["DAILY", "WEEKLY", "MONTHLY", "RARELY", "NEVER"]:
+                    rows.append({"Activity": label, "Frequency": k, "Households": v})
         af = pd.DataFrame(rows)
-        pivot = af.pivot_table(index="Activity", columns="Frequency", values="Households", aggfunc="sum").fillna(0)
-        order = [x for x in ["DAILY", "WEEKLY", "MONTHLY", "RARELY", "NEVER"] if x in pivot.columns]
-        pivot = pivot[order]
-        st.bar_chart(pivot)
-        st.write(pivot)
+        if not af.empty:
+            pivot = af.pivot_table(index="Activity", columns="Frequency", values="Households", aggfunc="sum").fillna(0)
+            order = [x for x in ["DAILY", "WEEKLY", "MONTHLY", "RARELY", "NEVER"] if x in pivot.columns]
+            pivot = pivot[order]
+            st.bar_chart(pivot)
+            st.write(pivot)
 
     if col_most:
         st.markdown("**Activity Consuming Most Water**")
