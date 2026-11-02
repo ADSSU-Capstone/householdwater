@@ -4,6 +4,3 @@ numpy
 scikit-learn
 mlxtend
 openpyxl
-re
-unicodedata
-io
