@@ -41,19 +41,37 @@ def load_example():
         return None
 
 def process_headers(df_raw):
-    # The dataset has split headers across the first 3 rows. Merge them.
-    h1 = df_raw.iloc[0].fillna("").astype(str).apply(clean_text)
-    h2 = df_raw.iloc[1].fillna("").astype(str).apply(clean_text)
-    h3 = df_raw.iloc[2].fillna("").astype(str).apply(clean_text)
+    # Identify how many header rows exist by finding the first row that looks like data (e.g., ROO1)
+    header_rows = 1
+    for i in range(min(5, len(df_raw))):
+        row_str = " ".join([str(x) for x in df_raw.iloc[i].values if pd.notna(x)]).upper()
+        if "ROO1" in row_str or "R001" in row_str or "RESPONDENT" in row_str and i > 0:
+            header_rows = i
+            break
     
-    new_cols = []
-    for c1, c2, c3 in zip(h1, h2, h3):
-        combined = f"{c1} {c2} {c3}".strip()
-        combined = re.sub(r"\s+", " ", combined)
-        new_cols.append(combined)
-        
-    df = df_raw.iloc[3:].copy()
-    df.columns = new_cols
+    if header_rows == 0:
+        header_rows = 1
+
+    cols = [""] * len(df_raw.columns)
+    for i in range(header_rows):
+        row_vals = df_raw.iloc[i].fillna("").astype(str).apply(clean_text)
+        for j, val in enumerate(row_vals):
+            if val:
+                cols[j] = f"{cols[j]} {val}".strip()
+
+    cols = [re.sub(r"\s+", " ", c).strip() for c in cols]
+    
+    # Make column names unique if there are duplicates
+    seen = {}
+    for i, c in enumerate(cols):
+        if c in seen:
+            seen[c] += 1
+            cols[i] = f"{c} {seen[c]}"
+        else:
+            seen[c] = 1
+
+    df = df_raw.iloc[header_rows:].copy()
+    df.columns = cols
     df = df.reset_index(drop=True)
     return df
 
@@ -90,7 +108,8 @@ def clean_dataset(df):
     df = df.dropna(how="all")
     df = df.drop_duplicates()
     for c in df.columns:
-        if df[c].dtype == object:
+        # Use pandas api to safely check for string/object types across versions
+        if pd.api.types.is_string_dtype(df[c]) or df[c].dtype == object:
             df[c] = df[c].apply(clean_text)
     return df.reset_index(drop=True)
 
