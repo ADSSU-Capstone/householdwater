@@ -66,6 +66,29 @@ st.markdown("""
         padding: 10px;
         border: 1px solid #E0E6E4;
     }
+    .custom-bar-container {
+        margin-bottom: 12px;
+        font-family: 'Helvetica Neue', sans-serif;
+    }
+    .custom-bar-label {
+        display: flex;
+        justify-content: space-between;
+        font-size: 13px;
+        color: #4A5D5D;
+        margin-bottom: 4px;
+        font-weight: 600;
+    }
+    .custom-bar-bg {
+        width: 100%;
+        background-color: #EEF2F0;
+        border-radius: 4px;
+        height: 20px;
+    }
+    .custom-bar-fill {
+        height: 100%;
+        background-color: #D97736;
+        border-radius: 4px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -145,8 +168,7 @@ def clean_dataset(df):
             df[c] = df[c].apply(clean_text)
     return df.reset_index(drop=True)
 
-def get_vc_data(series):
-    # extracts counts manually into python dict to bypass pandas internals bug
+def get_counts_df(series):
     counts = {}
     for val in series:
         if pd.isna(val): continue
@@ -154,7 +176,25 @@ def get_vc_data(series):
         if s == "": continue
         counts[s] = counts.get(s, 0) + 1
     sorted_items = sorted(counts.items(), key=lambda x: x[1], reverse=True)
-    return pd.DataFrame(sorted_items, columns=["Label", "Count"]).set_index("Label")
+    return pd.DataFrame(sorted_items, columns=["Label", "Value"])
+
+def draw_custom_bars(df, label_col, value_col):
+    max_val = df[value_col].max() if not df.empty else 0
+    html = ""
+    for _, row in df.iterrows():
+        pct = (row[value_col] / max_val) * 100 if max_val > 0 else 0
+        html += f"""
+        <div class="custom-bar-container">
+            <div class="custom-bar-label">
+                <span>{row[label_col]}</span>
+                <span>{row[value_col]:,.1f}</span>
+            </div>
+            <div class="custom-bar-bg">
+                <div class="custom-bar-fill" style="width: {pct}%;"></div>
+            </div>
+        </div>
+        """
+    st.markdown(html, unsafe_allow_html=True)
 
 activity_cols = [
     "DRINGKING & COOKING", "BATHING", "LAUNDRY", "TOILET FLUSHING",
@@ -248,18 +288,18 @@ with tabs[0]:
     with col_a:
         st.markdown("### Consumption Level Distribution")
         if "ConsumptionLevel" in df and df["ConsumptionLevel"].notna().any():
-            lvl_df = get_vc_data(df["ConsumptionLevel"]).reindex(["Low", "Medium", "High"]).fillna(0)
-            st.bar_chart(lvl_df)
-            st.dataframe(lvl_df.T, use_container_width=True)
+            lvl_df = get_counts_df(df["ConsumptionLevel"])
+            # reindex to desired order
+            lvl_df = lvl_df.set_index("Label").reindex(["Low", "Medium", "High"]).fillna(0).reset_index()
+            draw_custom_bars(lvl_df, "Label", "Value")
         else:
             st.write("Insufficient daily consumption data.")
             
     with col_b:
         st.markdown("### Households by Water Source")
         if col_source:
-            src_df = get_vc_data(df[col_source])
-            st.bar_chart(src_df)
-            st.dataframe(src_df.T, use_container_width=True)
+            src_df = get_counts_df(df[col_source])
+            draw_custom_bars(src_df, "Label", "Value")
 
     st.markdown("---")
     
@@ -269,18 +309,16 @@ with tabs[0]:
         if "FamilySizeNum" in df and df["FamilySizeNum"].notna().any():
             grp = df.dropna(subset=["FamilySizeNum", "DailyLiters"]).groupby("FamilySizeNum")["DailyLiters"].mean().reset_index()
             grp["FamilySizeNum"] = grp["FamilySizeNum"].astype(str) + " Persons"
-            grp = grp.set_index("FamilySizeNum")
-            st.bar_chart(grp)
-            st.dataframe(grp.T, use_container_width=True)
+            grp.rename(columns={"FamilySizeNum": "Label", "DailyLiters": "Value"}, inplace=True)
+            draw_custom_bars(grp, "Label", "Value")
 
     with col_d:
         st.markdown("### Mean Daily Use by Income Band")
         if "IncomeNum" in df and df["IncomeNum"].notna().any():
             gi = df.dropna(subset=["IncomeNum", "DailyLiters"]).groupby("IncomeNum")["DailyLiters"].mean().reset_index()
             gi["IncomeNum"] = "₱ " + gi["IncomeNum"].astype(int).astype(str)
-            gi = gi.set_index("IncomeNum")
-            st.bar_chart(gi)
-            st.dataframe(gi.T, use_container_width=True)
+            gi.rename(columns={"IncomeNum": "Label", "DailyLiters": "Value"}, inplace=True)
+            draw_custom_bars(gi, "Label", "Value")
 
 with tabs[1]:
     st.subheader("K-Means Clustering Analysis")
@@ -308,11 +346,11 @@ with tabs[1]:
         c1, c2 = st.columns(2)
         with c1:
             st.markdown("### Elbow Method (WCSS)")
-            st.line_chart(metrics_df.set_index("k")["WCSS"])
+            st.line_chart(metrics_df.set_index("k")["WCSS"], color="#D97736")
             st.dataframe(metrics_df.set_index("k"), use_container_width=True)
         with c2:
             st.markdown("### Silhouette Score")
-            st.line_chart(metrics_df.set_index("k")["Silhouette"])
+            st.line_chart(metrics_df.set_index("k")["Silhouette"], color="#2D4A3E")
             
         best_k = ks[int(np.argmax(sil))]
         st.info(f"Optimal K selected by maximum Silhouette Score: **{best_k} clusters** (Davies-Bouldin: {dbi[ks.index(best_k)]:.3f})")
@@ -403,7 +441,10 @@ with tabs[3]:
                         top = show.head(15).copy()
                         top["Rule"] = top["antecedents"] + " -> " + top["consequents"]
                         st.markdown("### Top 15 Rules by Lift")
-                        st.bar_chart(top.set_index("Rule")["lift"])
+                        
+                        # custom chart for top rules
+                        chart_df = top[["Rule", "lift"]].rename(columns={"Rule": "Label", "lift": "Value"})
+                        draw_custom_bars(chart_df, "Label", "Value")
                     else:
                         st.write("No rules met the confidence and lift thresholds.")
                 else:
@@ -431,11 +472,11 @@ with tabs[4]:
                     if act_key in c.upper():
                         label = act_label
                         break
-                counts_df = get_vc_data(df[c])
+                counts_df = get_counts_df(df[c])
                 for idx, row in counts_df.iterrows():
                     k = str(idx).upper()
                     if k in ["DAILY", "WEEKLY", "MONTHLY", "RARELY", "NEVER"]:
-                        rows.append({"Activity": label, "Frequency": k, "Households": row["Count"]})
+                        rows.append({"Activity": label, "Frequency": k, "Households": row["Value"]})
             af = pd.DataFrame(rows)
             if not af.empty:
                 pivot = af.pivot_table(index="Activity", columns="Frequency", values="Households", aggfunc="sum").fillna(0)
@@ -447,9 +488,8 @@ with tabs[4]:
     with col_most:
         if col_most:
             st.markdown("### Activity Consuming Most Water")
-            mw = get_vc_data(df[col_most])
-            st.bar_chart(mw)
-            st.dataframe(mw.T, use_container_width=True)
+            mw = get_counts_df(df[col_most])
+            draw_custom_bars(mw, "Label", "Value")
             
     st.markdown("---")
     
@@ -457,16 +497,14 @@ with tabs[4]:
     with col_cons:
         if col_conserve:
             st.markdown("### Conservation Practice Adoption")
-            cp = get_vc_data(df[col_conserve])
-            st.bar_chart(cp)
-            st.dataframe(cp.T, use_container_width=True)
+            cp = get_counts_df(df[col_conserve])
+            draw_custom_bars(cp, "Label", "Value")
 
     with col_prac:
         if col_practice:
             st.markdown("### Top Conservation Methods Applied")
-            pm = get_vc_data(df[col_practice]).head(10)
-            st.bar_chart(pm)
-            st.dataframe(pm.T, use_container_width=True)
+            pm = get_counts_df(df[col_practice]).head(10)
+            draw_custom_bars(pm, "Label", "Value")
             
     if col_shortage and col_source:
         st.markdown("---")
