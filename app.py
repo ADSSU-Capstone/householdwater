@@ -3,10 +3,10 @@ import pandas as pd
 import numpy as np
 import re
 import unicodedata
+from collections import Counter
 
 st.set_page_config(page_title="Water Usage Dashboard", layout="wide")
 
-# CUSTOM SAGE / TERRACOTTA THEME
 st.markdown("""
 <style>
     .stApp { background-color: #F4F7F5; }
@@ -95,23 +95,18 @@ def parse_bill(val):
     if len(nums) >= 2: return (nums[0] + nums[1]) / 2.0
     return nums[0]
 
-def get_vc_list(series):
-    # Bulletproof counting mechanism to avoid pandas 2.x crashes
+def safe_value_counts(df, col_name):
+    if col_name not in df: return pd.DataFrame(columns=["Label", "Count"])
+    vals = [str(v).strip() for v in df[col_name].tolist() if str(v).strip() != "" and str(v).lower() != "nan"]
     counts = {}
-    try:
-        for v in series:
-            if pd.isna(v): continue
-            s = str(v).strip()
-            if s == "" or s.lower() == "nan": continue
-            counts[s] = counts.get(s, 0) + 1
-    except Exception:
-        pass
-    return sorted(counts.items(), key=lambda x: x[1], reverse=True)
+    for v in vals:
+        counts[v] = counts.get(v, 0) + 1
+    sorted_counts = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+    return pd.DataFrame(sorted_counts, columns=["Label", "Count"])
 
 def draw_bars(items, label_header="Label", value_header="Count", is_float=False):
     if not items: return
     max_val = max([v for k, v in items]) if items else 0
-    # STRICT SINGLE LINE HTML TO PREVENT MARKDOWN CODE BLOCK BUG
     html = f"<div style='display:flex;justify-content:space-between;font-weight:bold;border-bottom:2px solid #D1D8D6;padding-bottom:8px;margin-bottom:16px;color:#2D4A3E;'><span>{label_header}</span><span>{value_header}</span></div>"
     for label, value in items:
         pct = (value / max_val) * 100 if max_val > 0 else 0
@@ -144,6 +139,7 @@ except Exception as e:
     st.stop()
 
 df = process_headers(df_raw)
+
 for c in df.columns:
     if df[c].dtype == object:
         df[c] = df[c].apply(clean_text)
@@ -192,14 +188,16 @@ with tabs[0]:
     with col_a:
         st.markdown("### Consumption Level Distribution")
         if "ConsumptionLevel" in df and df["ConsumptionLevel"].notna().any():
-            items = get_vc_list(df["ConsumptionLevel"])
+            items = safe_value_counts(df, "ConsumptionLevel").values.tolist()
             ordered = [("Low", next((v for k, v in items if k == "Low"), 0)),
                        ("Medium", next((v for k, v in items if k == "Medium"), 0)),
                        ("High", next((v for k, v in items if k == "High"), 0))]
             draw_bars(ordered, "Level", "Households")
     with col_b:
         st.markdown("### Households by Water Source")
-        if col_source: draw_bars(get_vc_list(df[col_source]), "Source", "Households")
+        if col_source: 
+            items = safe_value_counts(df, col_source).values.tolist()
+            draw_bars(items, "Source", "Households")
 
     st.markdown("---")
     col_c, col_d = st.columns(2)
@@ -337,7 +335,7 @@ with tabs[4]:
             rows = []
             for c in act_present:
                 label = next((act_label for act_key, act_label in activity_labels.items() if act_key in c.upper()), c)
-                for k, v in get_vc_list(df[c]):
+                for k, v in safe_value_counts(df, c).values.tolist():
                     if str(k).upper() in ["DAILY", "WEEKLY", "MONTHLY", "RARELY", "NEVER"]:
                         rows.append({"Activity": label, "Frequency": str(k).upper(), "Households": v})
             af = pd.DataFrame(rows)
@@ -354,18 +352,21 @@ with tabs[4]:
     with col_most:
         if col_most:
             st.markdown("### Activity Consuming Most Water")
-            draw_bars(get_vc_list(df[col_most]), "Activity", "Households")
+            items = safe_value_counts(df, col_most).values.tolist()
+            draw_bars(items, "Activity", "Households")
             
     st.markdown("---")
     col_cons, col_prac = st.columns(2)
     with col_cons:
         if col_conserve:
             st.markdown("### Conservation Practice Adoption")
-            draw_bars(get_vc_list(df[col_conserve]), "Response", "Households")
+            items = safe_value_counts(df, col_conserve).values.tolist()
+            draw_bars(items, "Response", "Households")
     with col_prac:
         if col_practice:
             st.markdown("### Top Conservation Methods Applied")
-            draw_bars(get_vc_list(df[col_practice])[:10], "Method", "Households")
+            items = safe_value_counts(df, col_practice).head(10).values.tolist()
+            draw_bars(items, "Method", "Households")
             
     if col_shortage and col_source:
         st.markdown("---")
