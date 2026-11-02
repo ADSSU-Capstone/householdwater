@@ -67,7 +67,7 @@ def process_headers(df_raw):
     for i, c in enumerate(cols):
         if c in seen:
             seen[c] += 1
-            cols[i] = f"{c} {seen[c]}"
+            cols[i] = f"{c}_{seen[c]}"
         else:
             seen[c] = 1
 
@@ -109,8 +109,12 @@ def clean_dataset(df):
     return df.reset_index(drop=True)
 
 def get_vc_list(series):
-    # Pure Python implementation to bypass pandas bugs completely
-    vals = [str(v).strip() for v in series.dropna().tolist() if str(v).strip() != ""]
+    # Safe extraction to bypass pandas 2.x bugs
+    vals = []
+    for v in series:
+        if pd.isna(v): continue
+        s = str(v).strip()
+        if s != "": vals.append(s)
     counts = Counter(vals)
     return counts.most_common()
 
@@ -120,7 +124,7 @@ def draw_custom_bars(items, label_header="Label", value_header="Value"):
     html = f"<div style='display:flex; justify-content:space-between; font-weight:bold; border-bottom:1px solid #D1D8D6; padding-bottom:8px; margin-bottom:12px; color:#2D4A3E;'><span>{label_header}</span><span>{value_header}</span></div>"
     for label, value in items:
         pct = (value / max_val) * 100 if max_val > 0 else 0
-        display_val = f"{value:,.1f}" if isinstance(value, float) else f"{value:,}"
+        display_val = f"{value:,.2f}" if isinstance(value, float) else f"{value:,}"
         html += f"""
         <div class="custom-bar-container">
             <div class="custom-bar-label"><span>{label}</span><span>{display_val}</span></div>
@@ -200,7 +204,6 @@ with tabs[0]:
         st.markdown("### Consumption Level Distribution")
         if "ConsumptionLevel" in df and df["ConsumptionLevel"].notna().any():
             items = get_vc_list(df["ConsumptionLevel"])
-            # enforce order
             ordered = [("Low", next((v for k, v in items if k == "Low"), 0)),
                        ("Medium", next((v for k, v in items if k == "Medium"), 0)),
                        ("High", next((v for k, v in items if k == "High"), 0))]
