@@ -10,7 +10,6 @@ st.markdown("""
 <style>
     .stApp { background-color: #F9F9F8; }
     h1, h2, h3 { color: #2D4A3E !important; font-family: 'Helvetica Neue', sans-serif; }
-    
     .stTabs [data-baseweb="tab-list"] { gap: 10px; background-color: transparent; }
     .stTabs [data-baseweb="tab"] {
         height: 50px; background-color: #FFFFFF; border: 1px solid #D1D8D6;
@@ -23,7 +22,6 @@ st.markdown("""
         border-color: #2D4A3E !important; box-shadow: 0 4px 10px rgba(45, 74, 62, 0.2);
     }
     .stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] { display: none; }
-    
     div[data-testid="stMetric"] {
         background-color: #FFFFFF; border: 1px solid #E0E6E4; border-radius: 10px; 
         padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.02); text-align: center;
@@ -95,14 +93,14 @@ def parse_bill(val):
     return nums[0]
 
 def safe_value_counts(df, col_name):
-    # Converts column to pure python list first to bypass pandas bugs
-    if col_name not in df: return pd.DataFrame(columns=[col_name, "Count"])
+    # Extracts to pure python list to completely bypass pandas/altair bugs
+    if col_name not in df: return pd.DataFrame(columns=["Label", "Count"])
     vals = [str(v).strip() for v in df[col_name].tolist() if str(v).strip() != "" and str(v).lower() != "nan"]
     counts = {}
     for v in vals:
         counts[v] = counts.get(v, 0) + 1
     sorted_counts = sorted(counts.items(), key=lambda x: x[1], reverse=True)
-    return pd.DataFrame(sorted_counts, columns=[col_name, "Count"])
+    return pd.DataFrame(sorted_counts, columns=["Label", "Count"])
 
 activity_cols = ["DRINGKING & COOKING", "BATHING", "LAUNDRY", "TOILET FLUSHING", "DISHWASHING", "CLEANING /MOPPING", "WATERING PLANTS", "CAR /VIHICLE WASHING", "ANIMAL CARE"]
 activity_labels = {
@@ -180,7 +178,9 @@ with tabs[0]:
         if "ConsumptionLevel" in df and df["ConsumptionLevel"].notna().any():
             lvl = safe_value_counts(df, "ConsumptionLevel")
             if not lvl.empty:
-                lvl = lvl.set_index("ConsumptionLevel").reindex(["Low", "Medium", "High"]).fillna(0)
+                # FORCE CLEAN STRING INDEX TO PREVENT ALTAIR BUG
+                lvl["Label"] = lvl["Label"].astype(str)
+                lvl = lvl.set_index("Label").reindex(["Low", "Medium", "High"]).fillna(0)
                 st.bar_chart(lvl)
                 st.dataframe(lvl.T, use_container_width=True)
     with col_b:
@@ -188,8 +188,9 @@ with tabs[0]:
         if col_source: 
             src = safe_value_counts(df, col_source)
             if not src.empty:
-                st.bar_chart(src.set_index(col_source))
-                st.dataframe(src.set_index(col_source).T, use_container_width=True)
+                src["Label"] = src["Label"].astype(str)
+                st.bar_chart(src.set_index("Label"))
+                st.dataframe(src.set_index("Label").T, use_container_width=True)
 
     st.markdown("---")
     col_c, col_d = st.columns(2)
@@ -198,6 +199,7 @@ with tabs[0]:
         if "FamilySizeNum" in df and df["FamilySizeNum"].notna().any():
             grp = df.dropna(subset=["FamilySizeNum", "DailyLiters"]).groupby("FamilySizeNum")["DailyLiters"].mean().reset_index()
             grp["Label"] = grp["FamilySizeNum"].astype(str) + " Persons"
+            grp["Label"] = grp["Label"].astype(str)
             st.bar_chart(grp.set_index("Label")[["DailyLiters"]])
             st.dataframe(grp.set_index("Label")[["DailyLiters"]].T, use_container_width=True)
     with col_d:
@@ -205,6 +207,7 @@ with tabs[0]:
         if "IncomeNum" in df and df["IncomeNum"].notna().any():
             gi = df.dropna(subset=["IncomeNum", "DailyLiters"]).groupby("IncomeNum")["DailyLiters"].mean().reset_index()
             gi["Label"] = "₱ " + gi["IncomeNum"].astype(int).astype(str)
+            gi["Label"] = gi["Label"].astype(str)
             st.bar_chart(gi.set_index("Label")[["DailyLiters"]])
             st.dataframe(gi.set_index("Label")[["DailyLiters"]].T, use_container_width=True)
 
@@ -228,7 +231,10 @@ with tabs[1]:
             sil.append(silhouette_score(Xs, km.labels_))
             dbi.append(davies_bouldin_score(Xs, km.labels_))
             
-        metrics_df = pd.DataFrame({"k": ks, "WCSS": wcss, "Silhouette": sil, "DaviesBouldin": dbi}).set_index("k")
+        metrics_df = pd.DataFrame({"k": ks, "WCSS": wcss, "Silhouette": sil, "DaviesBouldin": dbi})
+        metrics_df["k"] = metrics_df["k"].astype(str)
+        metrics_df = metrics_df.set_index("k")
+        
         c1, c2 = st.columns(2)
         with c1:
             st.markdown("### Elbow Method (WCSS)")
@@ -312,6 +318,7 @@ with tabs[3]:
                         
                         top = show.head(15).copy()
                         top["Rule"] = top["antecedents"] + " -> " + top["consequents"]
+                        top["Rule"] = top["Rule"].astype(str)
                         st.markdown("### Top 15 Rules by Lift")
                         st.bar_chart(top.set_index("Rule")["lift"])
     except ImportError: st.write("Association rule library unavailable.")
@@ -329,7 +336,7 @@ with tabs[4]:
                 label = next((act_label for act_key, act_label in activity_labels.items() if act_key in c.upper()), c)
                 counts = safe_value_counts(df, c)
                 for _, row in counts.iterrows():
-                    k = str(row[c]).upper()
+                    k = str(row["Label"]).upper()
                     if k in ["DAILY", "WEEKLY", "MONTHLY", "RARELY", "NEVER"]:
                         rows.append({"Activity": label, "Frequency": k, "Households": row["Count"]})
             af = pd.DataFrame(rows)
@@ -337,6 +344,7 @@ with tabs[4]:
                 pivot = af.pivot_table(index="Activity", columns="Frequency", values="Households", aggfunc="sum").fillna(0)
                 order = [x for x in ["DAILY", "WEEKLY", "MONTHLY", "RARELY", "NEVER"] if x in pivot.columns]
                 pivot = pivot[order]
+                pivot.index = pivot.index.astype(str)
                 st.bar_chart(pivot)
                 st.dataframe(pivot, use_container_width=True)
 
@@ -345,8 +353,9 @@ with tabs[4]:
             st.markdown("### Activity Consuming Most Water")
             mw = safe_value_counts(df, col_most)
             if not mw.empty:
-                st.bar_chart(mw.set_index(col_most))
-                st.dataframe(mw.set_index(col_most).T, use_container_width=True)
+                mw["Label"] = mw["Label"].astype(str)
+                st.bar_chart(mw.set_index("Label"))
+                st.dataframe(mw.set_index("Label").T, use_container_width=True)
             
     st.markdown("---")
     col_cons, col_prac = st.columns(2)
@@ -355,15 +364,17 @@ with tabs[4]:
             st.markdown("### Conservation Practice Adoption")
             cp = safe_value_counts(df, col_conserve)
             if not cp.empty:
-                st.bar_chart(cp.set_index(col_conserve))
-                st.dataframe(cp.set_index(col_conserve).T, use_container_width=True)
+                cp["Label"] = cp["Label"].astype(str)
+                st.bar_chart(cp.set_index("Label"))
+                st.dataframe(cp.set_index("Label").T, use_container_width=True)
     with col_prac:
         if col_practice:
             st.markdown("### Top Conservation Methods Applied")
             pm = safe_value_counts(df, col_practice).head(10)
             if not pm.empty:
-                st.bar_chart(pm.set_index(col_practice))
-                st.dataframe(pm.set_index(col_practice).T, use_container_width=True)
+                pm["Label"] = pm["Label"].astype(str)
+                st.bar_chart(pm.set_index("Label"))
+                st.dataframe(pm.set_index("Label").T, use_container_width=True)
             
     if col_shortage and col_source:
         st.markdown("---")
