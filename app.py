@@ -8,7 +8,6 @@ st.set_page_config(page_title="Household Water Usage Analysis", layout="wide")
 
 st.markdown("""
 <style>
-    /* Main background and text */
     .stApp {
         background-color: #F7F9F8;
     }
@@ -16,8 +15,6 @@ st.markdown("""
         color: #1A3636 !important;
         font-family: 'Helvetica Neue', sans-serif;
     }
-    
-    /* Custom Tabs */
     .stTabs [data-baseweb="tab-list"] { 
         gap: 10px; 
         background-color: transparent;
@@ -46,8 +43,6 @@ st.markdown("""
     .stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] { 
         display: none; 
     }
-    
-    /* Metrics Cards */
     div[data-testid="stMetric"] {
         background-color: #FFFFFF; 
         border: 1px solid #E0E6E4; 
@@ -65,8 +60,6 @@ st.markdown("""
         color: #2F5D62 !important;
         font-weight: 700;
     }
-    
-    /* Dataframes */
     div[data-testid="stDataFrame"] {
         background-color: #FFFFFF;
         border-radius: 8px;
@@ -76,8 +69,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-EXAMPLE_PATH = "FINAL DATA SET 3.xlsx"
-
 def clean_text(val):
     if pd.isna(val):
         return ""
@@ -86,12 +77,6 @@ def clean_text(val):
     s = re.sub(r"[\U0001F000-\U0001FAFF\u2600-\u27BF]", "", s)
     s = re.sub(r"\s+", " ", s).strip()
     return s
-
-def load_example():
-    try:
-        return pd.read_excel(EXAMPLE_PATH, header=None)
-    except Exception:
-        return None
 
 def process_headers(df_raw):
     header_rows = 1
@@ -160,6 +145,10 @@ def clean_dataset(df):
             df[c] = df[c].apply(clean_text)
     return df.reset_index(drop=True)
 
+def get_vc(series):
+    # safe value_counts to avoid pandas 2.x mixed-type object errors
+    return pd.Series(series.dropna().astype(str).values).value_counts()
+
 activity_cols = [
     "DRINGKING & COOKING", "BATHING", "LAUNDRY", "TOILET FLUSHING",
     "DISHWASHING", "CLEANING /MOPPING", "WATERING PLANTS",
@@ -175,22 +164,18 @@ activity_labels = {
 
 st.sidebar.markdown("### Data Management")
 uploaded = st.sidebar.file_uploader("Upload Dataset (CSV or Excel)", type=["csv", "xlsx", "xls"])
-use_example = st.sidebar.checkbox("Use example dataset (if no upload)", value=True)
 
-df_raw = None
-if uploaded is not None:
-    try:
-        if uploaded.name.lower().endswith(".csv"):
-            df_raw = pd.read_csv(uploaded, header=None)
-        else:
-            df_raw = pd.read_excel(uploaded, header=None)
-    except Exception as e:
-        st.sidebar.error(f"Could not read file: {e}")
-elif use_example:
-    df_raw = load_example()
+if uploaded is None:
+    st.info("No dataset loaded. Upload a CSV or Excel file to begin.")
+    st.stop()
 
-if df_raw is None:
-    st.info("No dataset loaded. Upload a CSV or Excel file, or enable the example dataset in the sidebar.")
+try:
+    if uploaded.name.lower().endswith(".csv"):
+        df_raw = pd.read_csv(uploaded, header=None)
+    else:
+        df_raw = pd.read_excel(uploaded, header=None)
+except Exception as e:
+    st.error(f"Could not read file: {e}")
     st.stop()
 
 df_merged = process_headers(df_raw)
@@ -253,7 +238,7 @@ with tabs[0]:
     with col_a:
         st.markdown("### Consumption Level Distribution")
         if "ConsumptionLevel" in df and df["ConsumptionLevel"].notna().any():
-            lvl = df["ConsumptionLevel"].value_counts().reindex(["Low", "Medium", "High"]).fillna(0)
+            lvl = get_vc(df["ConsumptionLevel"]).reindex(["Low", "Medium", "High"]).fillna(0)
             lvl_df = pd.DataFrame({"Level": lvl.index, "Households": lvl.values}).set_index("Level")
             st.bar_chart(lvl_df)
             st.dataframe(lvl_df.T, use_container_width=True)
@@ -263,7 +248,7 @@ with tabs[0]:
     with col_b:
         st.markdown("### Households by Water Source")
         if col_source:
-            src = df[col_source].value_counts().reset_index()
+            src = get_vc(df[col_source]).reset_index()
             src.columns = ["Source", "Households"]
             src = src.set_index("Source")
             st.bar_chart(src)
@@ -439,10 +424,10 @@ with tabs[4]:
                     if act_key in c.upper():
                         label = act_label
                         break
-                counts = df[c].astype(str).str.upper().value_counts()
+                counts = get_vc(df[c])
                 for k, v in counts.items():
-                    if k in ["DAILY", "WEEKLY", "MONTHLY", "RARELY", "NEVER"]:
-                        rows.append({"Activity": label, "Frequency": k, "Households": v})
+                    if str(k).upper() in ["DAILY", "WEEKLY", "MONTHLY", "RARELY", "NEVER"]:
+                        rows.append({"Activity": label, "Frequency": str(k).upper(), "Households": v})
             af = pd.DataFrame(rows)
             if not af.empty:
                 pivot = af.pivot_table(index="Activity", columns="Frequency", values="Households", aggfunc="sum").fillna(0)
@@ -454,7 +439,7 @@ with tabs[4]:
     with col_most:
         if col_most:
             st.markdown("### Activity Consuming Most Water")
-            mw = df[col_most].astype(str).value_counts().reset_index()
+            mw = get_vc(df[col_most]).reset_index()
             mw.columns = ["Activity", "Households"]
             mw = mw.set_index("Activity")
             st.bar_chart(mw)
@@ -466,7 +451,7 @@ with tabs[4]:
     with col_cons:
         if col_conserve:
             st.markdown("### Conservation Practice Adoption")
-            cp = df[col_conserve].astype(str).value_counts().reset_index()
+            cp = get_vc(df[col_conserve]).reset_index()
             cp.columns = ["Response", "Households"]
             cp = cp.set_index("Response")
             st.bar_chart(cp)
@@ -475,7 +460,7 @@ with tabs[4]:
     with col_prac:
         if col_practice:
             st.markdown("### Top Conservation Methods Applied")
-            pm = df[col_practice].astype(str).value_counts().head(10).reset_index()
+            pm = get_vc(df[col_practice]).head(10).reset_index()
             pm.columns = ["Method", "Households"]
             pm = pm.set_index("Method")
             st.bar_chart(pm)
