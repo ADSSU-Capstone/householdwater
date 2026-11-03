@@ -274,9 +274,12 @@ def make_svg_bar(value, max_value, color="#D97736"):
     """
 
 
-def render_svg_table(df, label_col, value_col, color="#D97736"):
+def render_svg_table(df, label_col, value_col, color="#D97736", title=None):
     if df.empty:
         return
+    
+    if title:
+        st.markdown(f"**{title}**")
 
     max_val = df[value_col].max()
     df_disp = df.copy()
@@ -502,14 +505,14 @@ with tabs[0]:
                 .reset_index()
             )
 
-            render_svg_table(items, "Label", "Count", "#D97736")
+            render_svg_table(items, "Label", "Count", "#D97736", title="Counts by Level")
 
     with col_b:
         st.markdown("### Households by Water Source")
 
         if col_source:
             items = safe_value_counts(df, col_source)
-            render_svg_table(items, "Label", "Count", "#4A7C59")
+            render_svg_table(items, "Label", "Count", "#4A7C59", title="Households per Source")
 
     st.markdown("---")
 
@@ -537,6 +540,7 @@ with tabs[0]:
                 "Label",
                 "DailyLiters",
                 "#2D4A3E",
+                title="Avg Liters by Family Size"
             )
 
     with col_d:
@@ -561,6 +565,7 @@ with tabs[0]:
                 "Label",
                 "DailyLiters",
                 "#7A9E7E",
+                title="Avg Liters by Income"
             )
 
 
@@ -623,6 +628,7 @@ with tabs[1]:
                 "Label",
                 "WCSS",
                 "#D97736",
+                title="WCSS per Cluster Count"
             )
 
             st.dataframe(
@@ -641,6 +647,7 @@ with tabs[1]:
                 "Label",
                 "Silhouette",
                 "#2D4A3E",
+                title="Silhouette Score per Cluster Count"
             )
 
         best_k = ks[int(np.argmax(sil))]
@@ -760,8 +767,6 @@ with tabs[2]:
                 with col_tree:
                     st.markdown("### Decision Tree Visualization")
 
-                    # Display the trained decision tree as a diagram,
-                    # not as text-based rules.
                     fig, ax = plt.subplots(figsize=(20, 11))
 
                     plot_tree(
@@ -808,6 +813,7 @@ with tabs[2]:
         )
 
 
+with tabs[3]:
     st.subheader("Apriori Association Rules")
 
     try:
@@ -900,6 +906,7 @@ with tabs[2]:
                             "Rule",
                             "lift",
                             "#4A7C59",
+                            title="Top 15 Rules by Lift"
                         )
 
                     else:
@@ -1015,6 +1022,7 @@ with tabs[4]:
                         "Label",
                         "Count",
                         "#D97736",
+                        title="Frequency Breakdown by Activity"
                     )
 
         else:
@@ -1035,6 +1043,7 @@ with tabs[4]:
                     "Label",
                     "Count",
                     "#D97736",
+                    title="Most Water-Consuming Activities"
                 )
             else:
                 st.info(
@@ -1069,6 +1078,7 @@ with tabs[4]:
                     "Label",
                     "Count",
                     "#2D4A3E",
+                    title="Adoption of Conservation Practices"
                 )
 
     with practice_panel:
@@ -1087,6 +1097,7 @@ with tabs[4]:
                     "Label",
                     "Count",
                     "#7A9E7E",
+                    title="Top 10 Conservation Methods"
                 )
 
     if col_shortage and col_source:
@@ -1121,4 +1132,5 @@ with tabs[4]:
                 "Label",
                 "Count",
                 "#4A7C59",
+                title="Shortage Experiences by Water Source"
             )
