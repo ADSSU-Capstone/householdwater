@@ -150,13 +150,12 @@ def render_svg_table(df, label_col, value_col, color="#D97736"):
     for _, row in df_disp.iterrows():
         raw_label = str(row[label_col])
         
-        # Split by comma, strip whitespace, and filter empty strings
-        parts = [p.strip() for p in raw_label.split(",") if p.strip()]
+        import re
+        parts = [p.strip() for p in re.split(r",\s+", raw_label) if p.strip()]
         
-        # Create a vertical stack of lines using divs
         formatted_label = "<div style='display: flex; flex-direction: column; gap: 2px;'>"
         for part in parts:
-            formatted_label += f"<div style='line-height: 1.2;'>{part}</div>"
+            formatted_label += f"<div style='line-height: 1.3;'>{part}</div>"
         formatted_label += "</div>"
         
         html += f"<tr><td>{formatted_label}</td><td>{row[value_col]}</td></tr>"
