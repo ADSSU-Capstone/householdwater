@@ -9,6 +9,7 @@ st.set_page_config(page_title="Water Usage Dashboard", layout="wide")
 
 st.markdown("""
 <style>
+    .block-container { padding-top: 2rem; }
     .stApp { background-color: #F4F7F5; }
     h1, h2, h3 { color: #2D4A3E !important; font-family: 'Helvetica Neue', sans-serif; }
     
@@ -31,6 +32,13 @@ st.markdown("""
     }
     div[data-testid="stMetric"] label { color: #6A7C7C !important; font-weight: 600; font-size: 14px; }
     div[data-testid="stMetric"] div[data-testid="stMetricValue"] { color: #D97736 !important; font-weight: 700; }
+
+    /* Custom tree code block style */
+    .tree-box {
+        background-color: #FFFFFF; border: 1px solid #E0E6E4; border-radius: 8px; 
+        padding: 15px; font-family: monospace; font-size: 13px; line-height: 1.5;
+        overflow-x: auto; color: #2D4A3E;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -123,7 +131,6 @@ def render_svg_table(df, label_col, value_col, color="#D97736"):
     df_disp = df.copy()
     df_disp[value_col] = df_disp[value_col].apply(lambda x: make_svg_bar(x, max_val, color))
     
-    # We use a simple styled HTML table to ensure perfect alignment
     html = "<table style='width:100%; border-collapse:collapse; font-family:sans-serif;'>"
     html += f"<tr style='border-bottom:2px solid #D1D8D6; text-align:left;'><th style='padding:10px; color:#2D4A3E;'>{label_col}</th><th style='padding:10px; color:#2D4A3E; width:60%;'>{value_col}</th></tr>"
     for _, row in df_disp.iterrows():
@@ -303,10 +310,18 @@ with tabs[2]:
                 labels = sorted(set(yte) | set(pred))
                 cm = confusion_matrix(yte, pred, labels=labels)
                 cm_df = pd.DataFrame(cm, index=[f"Actual {l}" for l in labels], columns=[f"Pred {l}" for l in labels])
-                st.dataframe(cm_df, use_container_width=True)
+                
+                # Display as a styled heatmap table
+                st.dataframe(
+                    cm_df.style.background_gradient(cmap="Oranges", axis=None)
+                    .format("{:,}"),
+                    use_container_width=True
+                )
             with col_rules:
                 st.markdown("### Decision Tree Rules")
-                st.text(export_text(clf, feature_names=feat, spacing=3))
+                # Render rules in a clean custom box
+                rules_text = export_text(clf, feature_names=feat, spacing=3)
+                st.markdown(f"<div class='tree-box'>{rules_text}</div>", unsafe_allow_html=True)
 
 with tabs[3]:
     st.subheader("Apriori Association Rules")
