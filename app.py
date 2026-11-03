@@ -346,10 +346,15 @@ with tabs[4]:
                 order = [x for x in ["DAILY", "WEEKLY", "MONTHLY", "RARELY", "NEVER"] if x in pivot.columns]
                 pivot = pivot[order]
                 st.dataframe(pivot, use_container_width=True)
+                
+                # Flatten the pivot for the bar chart
+                flat_counts = []
                 for activity in pivot.index:
-                    st.markdown(f"**{activity}**")
-                    counts = [(f, pivot.loc[activity, f]) for f in order if pivot.loc[activity, f] > 0]
-                    draw_svg_bars(counts, "", "Households")
+                    for freq in order:
+                        if pivot.loc[activity, freq] > 0:
+                            flat_counts.append({"Label": f"{activity} ({freq})", "Count": pivot.loc[activity, freq]})
+                flat_df = pd.DataFrame(flat_counts)
+                render_native_bar(flat_df, "Label", "Count", "#D97736")
 
     with col_most:
         if col_most:
@@ -375,7 +380,11 @@ with tabs[4]:
         st.markdown("### Water Shortage Experience by Source")
         ct = pd.crosstab(df[col_source].astype(str), df[col_shortage].astype(str))
         st.dataframe(ct, use_container_width=True)
+        
+        flat_ct = []
         for source in ct.index:
-            st.markdown(f"**{source}**")
-            counts = [(str(k), v) for k, v in ct.loc[source].items() if v > 0]
-            draw_svg_bars(counts, "Response", "Households")
+            for resp in ct.columns:
+                if ct.loc[source, resp] > 0:
+                    flat_ct.append({"Label": f"{source} ({resp})", "Count": ct.loc[source, resp]})
+        flat_ct_df = pd.DataFrame(flat_ct)
+        render_native_bar(flat_ct_df, "Label", "Count", "#4A7C59")
