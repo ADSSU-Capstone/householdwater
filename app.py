@@ -33,10 +33,16 @@ st.markdown("""
     div[data-testid="stMetric"] label { color: #6A7C7C !important; font-weight: 600; font-size: 14px; }
     div[data-testid="stMetric"] div[data-testid="stMetricValue"] { color: #D97736 !important; font-weight: 700; }
 
+    /* FIXED: Added white-space and word-wrap for the tree output */
     .tree-box {
         background-color: #FFFFFF; border: 1px solid #E0E6E4; border-radius: 8px; 
         padding: 15px; font-family: monospace; font-size: 13px; line-height: 1.5;
-        overflow-x: auto; color: #2D4A3E; white-space: pre-wrap; word-wrap: break-word;
+        overflow-x: auto; color: #2D4A3E; 
+    }
+    .tree-box pre {
+        white-space: pre-wrap !important; 
+        word-wrap: break-word !important; 
+        margin: 0;
     }
 
     /* Fix table alignment */
@@ -150,9 +156,10 @@ def render_svg_table(df, label_col, value_col, color="#D97736"):
     for _, row in df_disp.iterrows():
         raw_label = str(row[label_col])
         
-        import re
+        # Split ONLY on commas followed by a space (e.g., ", ")
         parts = [p.strip() for p in re.split(r",\s+", raw_label) if p.strip()]
         
+        # Create a vertical stack of lines using divs
         formatted_label = "<div style='display: flex; flex-direction: column; gap: 2px;'>"
         for part in parts:
             formatted_label += f"<div style='line-height: 1.3;'>{part}</div>"
