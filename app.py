@@ -105,17 +105,31 @@ def safe_value_counts(df, col_name, limit=None):
     if limit: sorted_counts = sorted_counts[:limit]
     return pd.DataFrame(sorted_counts, columns=["Label", "Count"])
 
-# Native styling function to prevent Altair crashes and HTML stripping
-def render_native_bar(df, label_col, value_col, color_hex="#D97736"):
+def make_svg_bar(value, max_value, color="#D97736"):
+    pct = (value / max_value) * 100 if max_value > 0 else 0
+    display_val = f"{value:,.1f}" if isinstance(value, float) else f"{value:,}"
+    return f"""
+    <div style="display:flex; align-items:center; width:100%; font-family:sans-serif;">
+        <div style="flex-grow:1; background-color:#E8EDEA; border-radius:6px; height:20px; margin-right:10px; position:relative;">
+            <div style="background-color:{color}; width:{pct}%; height:100%; border-radius:6px;"></div>
+        </div>
+        <div style="width:60px; text-align:right; font-weight:600; font-size:13px;">{display_val}</div>
+    </div>
+    """
+
+def render_svg_table(df, label_col, value_col, color="#D97736"):
     if df.empty: return
-    df_display = df.copy()
-    df_display = df_display.set_index(label_col)
-    df_display = df_display.sort_values(by=value_col, ascending=True)
-    st.dataframe(
-        df_display.style.background_gradient(cmap="Oranges", subset=[value_col], vmin=0)
-        .format({value_col: "{:,.1f}" if df_display[value_col].dtype == float else "{:,}"}),
-        use_container_width=True
-    )
+    max_val = df[value_col].max()
+    df_disp = df.copy()
+    df_disp[value_col] = df_disp[value_col].apply(lambda x: make_svg_bar(x, max_val, color))
+    
+    # We use a simple styled HTML table to ensure perfect alignment
+    html = "<table style='width:100%; border-collapse:collapse; font-family:sans-serif;'>"
+    html += f"<tr style='border-bottom:2px solid #D1D8D6; text-align:left;'><th style='padding:10px; color:#2D4A3E;'>{label_col}</th><th style='padding:10px; color:#2D4A3E; width:60%;'>{value_col}</th></tr>"
+    for _, row in df_disp.iterrows():
+        html += f"<tr style='border-bottom:1px solid #E8EDEA;'><td style='padding:10px; font-size:14px; font-weight:600; color:#4A5D5D;'>{row[label_col]}</td><td style='padding:10px;'>{row[value_col]}</td></tr>"
+    html += "</table>"
+    st.html(html)
 
 activity_cols = ["DRINGKING & COOKING", "BATHING", "LAUNDRY", "TOILET FLUSHING", "DISHWASHING", "CLEANING /MOPPING", "WATERING PLANTS", "CAR /VIHICLE WASHING", "ANIMAL CARE"]
 activity_labels = {
@@ -193,12 +207,12 @@ with tabs[0]:
         if "ConsumptionLevel" in df and df["ConsumptionLevel"].notna().any():
             items = safe_value_counts(df, "ConsumptionLevel")
             items = items.set_index("Label").reindex(["Low", "Medium", "High"]).fillna(0).reset_index()
-            render_native_bar(items, "Label", "Count", "#D97736")
+            render_svg_table(items, "Label", "Count", "#D97736")
     with col_b:
         st.markdown("### Households by Water Source")
         if col_source: 
             items = safe_value_counts(df, col_source)
-            render_native_bar(items, "Label", "Count", "#4A7C59")
+            render_svg_table(items, "Label", "Count", "#4A7C59")
 
     st.markdown("---")
     col_c, col_d = st.columns(2)
@@ -207,13 +221,13 @@ with tabs[0]:
         if "FamilySizeNum" in df and df["FamilySizeNum"].notna().any():
             grp = df.dropna(subset=["FamilySizeNum", "DailyLiters"]).groupby("FamilySizeNum")["DailyLiters"].mean().reset_index()
             grp["Label"] = grp["FamilySizeNum"].astype(str) + " Persons"
-            render_native_bar(grp[["Label", "DailyLiters"]], "Label", "DailyLiters", "#2D4A3E")
+            render_svg_table(grp[["Label", "DailyLiters"]], "Label", "DailyLiters", "#2D4A3E")
     with col_d:
         st.markdown("### Mean Daily Use by Income Band")
         if "IncomeNum" in df and df["IncomeNum"].notna().any():
             gi = df.dropna(subset=["IncomeNum", "DailyLiters"]).groupby("IncomeNum")["DailyLiters"].mean().reset_index()
             gi["Label"] = "₱ " + gi["IncomeNum"].astype(int).astype(str)
-            render_native_bar(gi[["Label", "DailyLiters"]], "Label", "DailyLiters", "#7A9E7E")
+            render_svg_table(gi[["Label", "DailyLiters"]], "Label", "DailyLiters", "#7A9E7E")
 
 with tabs[1]:
     st.subheader("K-Means Clustering Analysis")
@@ -241,13 +255,13 @@ with tabs[1]:
             st.markdown("### Elbow Method (WCSS)")
             m_df = metrics_df.copy()
             m_df["Label"] = "k=" + m_df["k"].astype(str)
-            render_native_bar(m_df[["Label", "WCSS"]], "Label", "WCSS", "#D97736")
+            render_svg_table(m_df[["Label", "WCSS"]], "Label", "WCSS", "#D97736")
             st.dataframe(metrics_df.set_index("k"), use_container_width=True)
         with c2:
             st.markdown("### Silhouette Score")
             m_df = metrics_df.copy()
             m_df["Label"] = "k=" + m_df["k"].astype(str)
-            render_native_bar(m_df[["Label", "Silhouette"]], "Label", "Silhouette", "#2D4A3E")
+            render_svg_table(m_df[["Label", "Silhouette"]], "Label", "Silhouette", "#2D4A3E")
             
         best_k = ks[int(np.argmax(sil))]
         st.info(f"Optimal K selected by maximum Silhouette Score: **{best_k} clusters** (Davies-Bouldin: {dbi[ks.index(best_k)]:.3f})")
@@ -323,7 +337,7 @@ with tabs[3]:
                         
                         top = show.head(15).copy()
                         top["Rule"] = top["antecedents"] + " -> " + top["consequents"]
-                        render_native_bar(top[["Rule", "lift"]], "Rule", "lift", "#4A7C59")
+                        render_svg_table(top[["Rule", "lift"]], "Rule", "lift", "#4A7C59")
     except ImportError: st.write("Association rule library unavailable.")
 
 with tabs[4]:
@@ -347,20 +361,19 @@ with tabs[4]:
                 pivot = pivot[order]
                 st.dataframe(pivot, use_container_width=True)
                 
-                # Flatten the pivot for the bar chart
                 flat_counts = []
                 for activity in pivot.index:
                     for freq in order:
                         if pivot.loc[activity, freq] > 0:
                             flat_counts.append({"Label": f"{activity} ({freq})", "Count": pivot.loc[activity, freq]})
                 flat_df = pd.DataFrame(flat_counts)
-                render_native_bar(flat_df, "Label", "Count", "#D97736")
+                render_svg_table(flat_df, "Label", "Count", "#D97736")
 
     with col_most:
         if col_most:
             st.markdown("### Activity Consuming Most Water")
             items = safe_value_counts(df, col_most)
-            render_native_bar(items, "Label", "Count", "#D97736")
+            render_svg_table(items, "Label", "Count", "#D97736")
             
     st.markdown("---")
     col_cons, col_prac = st.columns(2)
@@ -368,12 +381,12 @@ with tabs[4]:
         if col_conserve:
             st.markdown("### Conservation Practice Adoption")
             items = safe_value_counts(df, col_conserve)
-            render_native_bar(items, "Label", "Count", "#2D4A3E")
+            render_svg_table(items, "Label", "Count", "#2D4A3E")
     with col_prac:
         if col_practice:
             st.markdown("### Top Conservation Methods Applied")
             items = safe_value_counts(df, col_practice, limit=10)
-            render_native_bar(items, "Label", "Count", "#7A9E7E")
+            render_svg_table(items, "Label", "Count", "#7A9E7E")
             
     if col_shortage and col_source:
         st.markdown("---")
@@ -387,4 +400,4 @@ with tabs[4]:
                 if ct.loc[source, resp] > 0:
                     flat_ct.append({"Label": f"{source} ({resp})", "Count": ct.loc[source, resp]})
         flat_ct_df = pd.DataFrame(flat_ct)
-        render_native_bar(flat_ct_df, "Label", "Count", "#4A7C59")
+        render_svg_table(flat_ct_df, "Label", "Count", "#4A7C59")
