@@ -37,7 +37,7 @@ st.markdown("""
     .tree-box {
         background-color: #FFFFFF; border: 1px solid #E0E6E4; border-radius: 8px; 
         padding: 15px; font-family: monospace; font-size: 13px; line-height: 1.5;
-        overflow-x: auto; color: #2D4A3E;
+        overflow-x: auto; color: #2D4A3E; white-space: pre-wrap; word-wrap: break-word;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -319,9 +319,9 @@ with tabs[2]:
                 )
             with col_rules:
                 st.markdown("### Decision Tree Rules")
-                # Render rules in a clean custom box
+                # Render rules in a clean custom box with preserved whitespace
                 rules_text = export_text(clf, feature_names=feat, spacing=3)
-                st.markdown(f"<div class='tree-box'>{rules_text}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='tree-box'><pre>{rules_text}</pre></div>", unsafe_allow_html=True)
 
 with tabs[3]:
     st.subheader("Apriori Association Rules")
