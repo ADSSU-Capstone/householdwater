@@ -33,12 +33,26 @@ st.markdown("""
     div[data-testid="stMetric"] label { color: #6A7C7C !important; font-weight: 600; font-size: 14px; }
     div[data-testid="stMetric"] div[data-testid="stMetricValue"] { color: #D97736 !important; font-weight: 700; }
 
-    /* Custom tree code block style */
     .tree-box {
         background-color: #FFFFFF; border: 1px solid #E0E6E4; border-radius: 8px; 
         padding: 15px; font-family: monospace; font-size: 13px; line-height: 1.5;
         overflow-x: auto; color: #2D4A3E; white-space: pre-wrap; word-wrap: break-word;
     }
+
+    /* Fix table alignment */
+    .custom-svg-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-family: sans-serif; }
+    .custom-svg-table th { border-bottom: 2px solid #D1D8D6; text-align: left; padding: 10px; color: #2D4A3E; }
+    .custom-svg-table td { 
+        border-bottom: 1px solid #E8EDEA; 
+        padding: 10px; 
+        font-size: 13px; 
+        font-weight: 600; 
+        color: #4A5D5D; 
+        vertical-align: middle; 
+    }
+    
+    /* Fixed width for the bar column */
+    .bar-col { width: 45%; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -117,11 +131,11 @@ def make_svg_bar(value, max_value, color="#D97736"):
     pct = (value / max_value) * 100 if max_value > 0 else 0
     display_val = f"{value:,.1f}" if isinstance(value, float) else f"{value:,}"
     return f"""
-    <div style="display:flex; align-items:center; width:100%; font-family:sans-serif;">
-        <div style="flex-grow:1; background-color:#E8EDEA; border-radius:6px; height:20px; margin-right:10px; position:relative;">
+    <div style="display:flex; align-items:center; width:100%;">
+        <div style="flex-grow:1; background-color:#E8EDEA; border-radius:6px; height:20px; margin-right:15px; position:relative;">
             <div style="background-color:{color}; width:{pct}%; height:100%; border-radius:6px;"></div>
         </div>
-        <div style="width:60px; text-align:right; font-weight:600; font-size:13px;">{display_val}</div>
+        <div style="width:60px; text-align:right; font-weight:600; font-size:14px; color:#4A5D5D;">{display_val}</div>
     </div>
     """
 
@@ -131,10 +145,21 @@ def render_svg_table(df, label_col, value_col, color="#D97736"):
     df_disp = df.copy()
     df_disp[value_col] = df_disp[value_col].apply(lambda x: make_svg_bar(x, max_val, color))
     
-    html = "<table style='width:100%; border-collapse:collapse; font-family:sans-serif;'>"
-    html += f"<tr style='border-bottom:2px solid #D1D8D6; text-align:left;'><th style='padding:10px; color:#2D4A3E;'>{label_col}</th><th style='padding:10px; color:#2D4A3E; width:60%;'>{value_col}</th></tr>"
+    html = "<table class='custom-svg-table'>"
+    html += f"<tr><th>{label_col}</th><th class='bar-col'>{value_col}</th></tr>"
     for _, row in df_disp.iterrows():
-        html += f"<tr style='border-bottom:1px solid #E8EDEA;'><td style='padding:10px; font-size:14px; font-weight:600; color:#4A5D5D;'>{row[label_col]}</td><td style='padding:10px;'>{row[value_col]}</td></tr>"
+        raw_label = str(row[label_col])
+        
+        # Split by comma, strip whitespace, and filter empty strings
+        parts = [p.strip() for p in raw_label.split(",") if p.strip()]
+        
+        # Create a vertical stack of lines using divs
+        formatted_label = "<div style='display: flex; flex-direction: column; gap: 2px;'>"
+        for part in parts:
+            formatted_label += f"<div style='line-height: 1.2;'>{part}</div>"
+        formatted_label += "</div>"
+        
+        html += f"<tr><td>{formatted_label}</td><td>{row[value_col]}</td></tr>"
     html += "</table>"
     st.html(html)
 
@@ -311,7 +336,6 @@ with tabs[2]:
                 cm = confusion_matrix(yte, pred, labels=labels)
                 cm_df = pd.DataFrame(cm, index=[f"Actual {l}" for l in labels], columns=[f"Pred {l}" for l in labels])
                 
-                # Display as a styled heatmap table
                 st.dataframe(
                     cm_df.style.background_gradient(cmap="Oranges", axis=None)
                     .format("{:,}"),
@@ -319,7 +343,6 @@ with tabs[2]:
                 )
             with col_rules:
                 st.markdown("### Decision Tree Rules")
-                # Render rules in a clean custom box with preserved whitespace
                 rules_text = export_text(clf, feature_names=feat, spacing=3)
                 st.markdown(f"<div class='tree-box'><pre>{rules_text}</pre></div>", unsafe_allow_html=True)
 
